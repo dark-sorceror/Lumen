@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><title>Lumen</title>
+<style>
+  :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui; }
+  body { max-width: 780px; margin: 2rem auto; padding: 0 1rem; }
+  #log { min-height: 50vh; }
+  .msg { padding: .6rem .9rem; border-radius: 10px; margin: .5rem 0; white-space: pre-wrap; }
+  .user { background: #2563eb22; }
+  .assistant { background: #88888822; }
+  .meta { opacity: .6; font-size: .8rem; }
+  form { display: flex; gap: .5rem; margin-top: 1rem; }
+  input[type=text] { flex: 1; padding: .6rem; }
+  button { padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h3>Lumen <span class="meta" id="status">connecting…</span></h3>
+<div id="log"></div>
+<form id="f">
+  <input type="text" id="box" placeholder="Say something…" autofocus>
+  <button type="submit" id="send">Send</button>
+  <button type="button" id="stop">Stop</button>
+</form>
+<script>
+const log = document.getElementById("log");
+const status = document.getElementById("status");
+const ws = new WebSocket(`ws://${location.host}/ws`);
+let current = null;
+
+function bubble(cls, text) {
+  const d = document.createElement("div");
+  d.className = `msg ${cls}`;
+  d.textContent = text;
+  log.appendChild(d);
+  d.scrollIntoView();
+  return d;
+}
+
+ws.onopen = () => { status.textContent = "connected"; };
+ws.onclose = () => { status.textContent = "disconnected"; };
+ws.onmessage = (ev) => {
+  const m = JSON.parse(ev.data);
+  if (m.type === "token") {
+    if (!current) current = bubble("assistant", "");
+    current.textContent += m.text;
+    current.scrollIntoView();
+  } else if (m.type === "done") {
+    if (current) current.title = `finish: ${m.finish_reason}`;
+    current = null;
+  } else if (m.type === "error") {
+    bubble("meta", `⚠ ${m.message}`);
+  }
+};
+
+document.getElementById("f").onsubmit = (e) => {
+  e.preventDefault();
+  const box = document.getElementById("box");
+  if (!box.value.trim()) return;
+  bubble("user", box.value);
+  ws.send(JSON.stringify({ type: "user_message", text: box.value }));
+  box.value = "";
+};
+document.getElementById("stop").onclick = () =>
+  ws.send(JSON.stringify({ type: "abort" }));
+</script>
+</body>
+</html>

@@ -663,3 +663,7 @@ def _drain_turn(ws):
 # --------------------- Control-queue draining across rounds ----
 
 
+def test_index_served():
+    r = make_client(ScriptedEngine()).get("/")
+    assert r.status_code == 200
+    assert "<html" in r.text.lower()
