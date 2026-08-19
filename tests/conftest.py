@@ -1,0 +1,137 @@
+import mlx.core as mx
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_vlm_by_default(monkeypatch):
+    """Session-wide safety net: attachment/server tests that are
+    NOT specifically about the VLM must never accidentally trigger
+    mlx-vlm's real (multi-GB, network-downloaded) model load just because
+    an image-mime attachment reaches process_attachment() -- e.g. the
+    corrupt/garbage-image 400 tests in test_server.py, or OCR-focused tests
+    in test_attachments.py that predate VLM support and expect the OCR path.
+
+    Default the WHOLE test suite to WORKBENCH_DISABLE_VLM=1 (VlmImageProcessor
+    disabled, images fall through to ImageOcrProcessor -- see
+    workbench/attachments/processors.py). Tests that specifically exercise
+    VlmImageProcessor override this locally (test_attachments.py's
+    `_reset_vlm_singleton` fixture `delenv`s it back off; the real @slow
+    round-trip test does the same)."""
+    monkeypatch.setenv("WORKBENCH_DISABLE_VLM", "1")
+
+
+class FakeModel:
+    """Deterministic LM: always predicts (last_token + 1) % vocab_size.
+    Token 250 acts as EOS. Ignores cache (accepts the kwarg like a real model)."""
+    vocab_size = 500
+
+    def __call__(self, inputs, cache=None):
+        n = inputs.shape[1]
+        last = int(inputs[0, -1].item())
+        row = [0.0] * self.vocab_size
+        row[(last + 1) % self.vocab_size] = 10.0
+        return mx.broadcast_to(mx.array(row), (1, n, self.vocab_size))
+
+    def make_cache(self):
+        return []
+
+
+class FakeDetokenizer:
+    """Mirrors mlx_lm's StreamingDetokenizer contract closely enough to pin
+    the engine's finalize-and-flush wiring: `last_segment` is a delta since
+    it was last read, and a token's text may be withheld until finalize()
+    flushes it -- without disturbing the immediate, fully-resolved
+    `"<token_id>"` segment every other test already pins."""
+
+    def __init__(self):
+        self.text = ""
+        self.offset = 0
+        self._pending_flush = False
+
+    def reset(self):
+        self.text = ""
+        self.offset = 0
+        self._pending_flush = False
+
+    def add_token(self, token_id):
+        self.text += f"<{token_id}>"
+        self._pending_flush = True
+
+    def finalize(self):
+        if self._pending_flush:
+            # Simulates flushing a withheld remainder (e.g. an unresolved
+            # multibyte tail) that only becomes available once decoding stops.
+            self.text += "~"
+            self._pending_flush = False
+
+    @property
+    def last_segment(self):
+        segment = self.text[self.offset:]
+        self.offset = len(self.text)
+        return segment
+
+
+class FakeTokenizer:
+    """Encode/decode treat text as space-separated integer token ids (so tests
+    can assert on token sequences directly). `apply_chat_template` mimics a
+    ChatML-style template (role tags wrap the content, generation prompt is a
+    pure additive suffix) using integer sentinel tags, keeping every piece of
+    template-produced text encodable by the same whitespace-split `encode`."""
+    eos_token_ids = {250}
+
+    # "tool" (401/402) is additive for tool-calling: real Qwen3
+    # wraps a tool result as a `user` turn containing <tool_response>...
+    # </tool_response> (see framing.frame_tool_result), but framing derives
+    # its prefix/suffix purely by rendering role="tool" through
+    # apply_chat_template and diffing against the placeholder -- it never
+    # inspects _ROLE_KIND/_ROLE_PROVENANCE (those are frame_message-only), so
+    # this fake just needs *a* distinct tag pair for role="tool" to exercise
+    # the same placeholder-diff mechanism the other roles already use.
+    _ROLE_TAGS = {"user": (101, 102), "assistant": (201, 202), "system": (301, 302),
+                 "tool": (401, 402)}
+    _GENERATION_PROMPT_TOKEN = 900
+
+    def __init__(self):
+        self._detok = FakeDetokenizer()
+
+    @property
+    def detokenizer(self):
+        return self._detok
+
+    # Non-integer whitespace tokens (e.g. English words in an attachment
+    # preface) map to a fixed sentinel id rather than raising -- additive:
+    # every existing integer-token test is unaffected since integer tokens
+    # still keep their exact value.
+    _NON_INT_SENTINEL = 999
+
+    def encode(self, text, add_special_tokens=True):
+        ids = []
+        for t in text.split():
+            try:
+                ids.append(int(t))
+            except ValueError:
+                ids.append(self._NON_INT_SENTINEL)
+        return ids
+
+    def decode(self, ids):
+        return " ".join(str(i) for i in ids)
+
+    def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=False, **kwargs):
+        parts = []
+        for m in messages:
+            start, end = self._ROLE_TAGS[m["role"]]
+            parts.append(f"{start} {m['content']} {end}")
+        text = " ".join(parts)
+        if add_generation_prompt:
+            text += f" {self._GENERATION_PROMPT_TOKEN}"
+        return self.encode(text) if tokenize else text
+
+
+@pytest.fixture
+def fake_model():
+    return FakeModel()
+
+
+@pytest.fixture
+def fake_tokenizer():
+    return FakeTokenizer()
