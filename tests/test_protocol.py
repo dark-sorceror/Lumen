@@ -128,3 +128,17 @@ def test_edit_rejected_msg():
     assert edit_rejected_msg("pause or wait first") == {
         "type": "edit_rejected", "message": "pause or wait first",
     }
+
+
+def test_user_message_may_request_top_logprobs():
+    msg = parse_client_msg(
+        '{"type": "user_message", "text": "hi", "top_k_logprobs": 5}')
+
+    assert msg["top_k_logprobs"] == 5
+
+
+def test_top_logprobs_request_must_be_a_non_negative_int():
+    for bad in ('"5"', "-1", "null"):
+        with pytest.raises(ValueError):
+            parse_client_msg(
+                '{"type": "user_message", "text": "hi", "top_k_logprobs": %s}' % bad)

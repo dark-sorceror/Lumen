@@ -34,6 +34,14 @@ def parse_client_msg(raw: str) -> dict:
     if msg["type"] == "user_message":
         if not isinstance(msg.get("text"), str):
             raise ValueError("user_message requires a string 'text'")
+    if msg["type"] == "user_message" and "top_k_logprobs" in msg:
+        # Opt-in per turn: the token event has always carried `top_logprobs`,
+        # but generation ran with top_k_logprobs=0, so the field was always
+        # empty. Off by default -- it costs a sort over the vocabulary per
+        # token.
+        k = msg["top_k_logprobs"]
+        if not isinstance(k, int) or isinstance(k, bool) or k < 0:
+            raise ValueError("user_message.top_k_logprobs must be a non-negative int")
     if msg["type"] in ("preview_edit", "apply_edit"):
         _validate_event(msg.get("event"))
     return msg

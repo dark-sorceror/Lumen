@@ -156,7 +156,8 @@ def create_app(engine, tokenizer) -> FastAPI:
         ctx = ContextObject()
         manager = ContextManager(ctx, tokenizer)
 
-        async def run_generation(control: ControlQueue, gen_prompt_seg: Segment):
+        async def run_generation(control: ControlQueue, gen_prompt_seg: Segment,
+                                 top_k_logprobs: int = 0):
             """Stream the assistant's reply for one user turn: one
             generate_with_cache call, one ASSISTANT_MSG closure, one terminal
             `done`."""
@@ -174,7 +175,7 @@ def create_app(engine, tokenizer) -> FastAPI:
                                 # answers -- a thinking model's <think> block
                                 # alone can eat hundreds of tokens before the
                                 # answer even starts.
-                                GenParams(top_k_logprobs=0, max_tokens=4096),
+                                GenParams(top_k_logprobs=top_k_logprobs, max_tokens=4096),
                                 control=control):
                             loop.call_soon_threadsafe(q.put_nowait, event)
                 finally:
@@ -296,7 +297,8 @@ def create_app(engine, tokenizer) -> FastAPI:
                     _append_segment(ctx, gen_prompt_seg, actor="server")
                     control = ControlQueue()
                     gen_task = asyncio.create_task(
-                        run_generation(control, gen_prompt_seg))
+                        run_generation(control, gen_prompt_seg,
+                                       int(msg.get("top_k_logprobs", 0))))
                 elif msg["type"] == "get_context":
                     await ws.send_json(protocol.context_msg(ctx))
                 elif msg["type"] in ("preview_edit", "apply_edit"):
