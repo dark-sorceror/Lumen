@@ -2,6 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// A single attachment as displayed inside a sent chat message (NOT the
+// composer's upload-tracking `Attachment` -- see Composer.tsx -- this is
+// just the slice of it worth remembering after send: enough to render the
+// same visual chip in the chat log and estimate its token contribution).
+export type MessageAttachment = {
+  name: string;
+  kind: "image" | "pdf" | "file";
+  // Object URL for image previews only (mirrors Composer's Attachment).
+  // Ownership transfers to the message on send -- see Composer.handleSend's
+  // revoke logic -- so it stays valid for the rest of the session.
+  previewUrl?: string;
+  // Extracted-text character count the server reported for this attachment
+  // (POST /attachments' `chars`), used to estimate its context-token impact
+  // with the same chars/4 heuristic as user-text. Undefined if the upload
+  // response didn't carry it.
+  chars?: number;
+};
+
 // Ordered timeline of an assistant reply's process, in TRUE arrival order --
 // thinking blocks exactly as the model produced them. Each agentic round
 // contributes at most one `thinking` item (its `<think>...</think>` block). A
@@ -24,6 +42,9 @@ export type ChatMessage = {
   // UI, since the client has no tokenizer.
   tokens?: number;
   tokensEstimated?: boolean;
+  // Attachments carried into this (user) message at send time, for display
+  // above the message text. Never set on assistant messages.
+  attachments?: MessageAttachment[];
   // Ordered thinking/tool timeline for this (assistant) message -- see
   // ProcessItem. Always [] for user messages and for assistant messages
   // that neither thought nor called a tool.
@@ -386,10 +407,15 @@ export function useChatSocket() {
   }, [connect]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachmentIds?: string[], attachmentsDisplay?: MessageAttachment[]) => {
       const trimmed = text.trim();
+      const hasAttachments = !!attachmentIds && attachmentIds.length > 0;
       const ws = wsRef.current;
-      if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return;
+      // A message needs *some* content to be worth sending -- either text or
+      // at least one uploaded attachment (mirrors MarkdownEditor's
+      // hasAttachments submit gate, which already lets an attachment-only send
+      // through with empty text).
+      if ((!trimmed && !hasAttachments) || !ws || ws.readyState !== WebSocket.OPEN) return;
       roundRawRef.current = "";
       // A new TURN starts here -- this is the one place output-token
       // accumulation resets (NOT each round's gen_stats -- see outputCountRef
@@ -409,11 +435,22 @@ export function useChatSocket() {
           tokens: Math.max(1, Math.round(trimmed.length / 4)),
           tokensEstimated: true,
           process: [], // never populated on user messages -- see ChatMessage type docs
+          ...(attachmentsDisplay && attachmentsDisplay.length > 0
+            ? { attachments: attachmentsDisplay }
+            : {}),
         },
         { role: "assistant", text: "", timestamp: now, process: [] },
       ]);
       setStreaming(true);
-      ws.send(JSON.stringify({ type: "user_message", text: trimmed }));
+      // attachment_ids is only added to the payload when non-empty, so a
+      // plain text send is byte-for-byte the same message it always was.
+      ws.send(
+        JSON.stringify({
+          type: "user_message",
+          text: trimmed,
+          ...(hasAttachments ? { attachment_ids: attachmentIds } : {}),
+        }),
+      );
     },
     [],
   );
