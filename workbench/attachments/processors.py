@@ -15,6 +15,9 @@ text-in-image only, via Apple Vision/`ocrmac`).
 from __future__ import annotations
 
 import io
+import os
+import tempfile
+import threading
 from abc import ABC, abstractmethod
 
 # Token-budget safety net: cap the TOTAL
@@ -134,6 +137,124 @@ class PdfProcessor(AttachmentProcessor):
         return chunks
 
 
+# `mlx-vlm` is a real (if heavy, ~5-8 GB download) dependency -- the import
+# is optional so the whole package still works on a machine that hasn't
+# pulled it in, or before its first-use download completes. If unavailable,
+# VlmImageProcessor.can_handle() returns False and dispatch falls through to
+# ImageOcrProcessor (see _PROCESSORS ordering below).
+try:
+    import mlx_vlm  # noqa: F401 (presence check only; used via lazy imports below)
+
+    VLM_AVAILABLE = True
+except Exception:  # pragma: no cover - exercised only where mlx-vlm is absent
+    VLM_AVAILABLE = False
+
+# Opt-out for users who don't want the multi-GB VLM download/load at all
+#: set WORKBENCH_DISABLE_VLM=1 to
+# force images through OcrImageProcessor (text-extraction behavior) even when
+# mlx-vlm is installed and importable.
+_DISABLE_VLM_ENV_VAR = "WORKBENCH_DISABLE_VLM"
+
+_VLM_DESCRIBE_PROMPT = (
+    "Describe this image in detail, including any visible text, charts, or diagrams."
+)
+_VLM_MAX_TOKENS = 384
+
+# Lazy-loaded singleton (module-level, not per-processor-instance) so the
+# ~5-8 GB VLM is loaded at most once per server process, on first image
+# upload, and reused across every subsequent image -- never reloaded per
+# call. Guarded by a lock because attachment processing runs in FastAPI's
+# executor (a thread pool -- see workbench/server/app.py's
+# `run_in_executor(None, process_attachment, ...)`), so two images uploaded
+# close together could race on first-load, and the loaded MLX model/Metal
+# command queue is not safe to drive from two threads at once regardless
+# (the lock below is held for the full load-and-generate critical section,
+# not just the load).
+#
+# GPU CONTENTION (known, accepted, documented -- not solved here): the VLM
+# runs at upload time (POST /attachments, in the executor thread) and
+# shares the same Metal device/GPU as the main text engine's generation
+# loop (workbench/engine/engine.py), which is itself serialized by a
+# per-app `gen_lock` (workbench/server/app.py) that this processor has no
+# handle on. A VLM describe-call that lands *during* an in-flight text
+# generation will contend for the GPU rather than queue behind it via a
+# shared lock. For a single-user, occasional-attachment workbench this is
+# acceptable today (MLX/Metal will interleave/serialize the work at the
+# driver level rather than corrupt anything -- it's a latency/throughput
+# hit, not a correctness bug), but a future refactor should have
+# `process_attachment` accept (or the app pass in) the same `gen_lock` so
+# VLM and text generation are explicitly serialized end-to-end.
+_vlm_lock = threading.Lock()
+_vlm_model = None
+_vlm_processor = None
+
+
+def _vlm_disabled_by_env() -> bool:
+    return os.environ.get(_DISABLE_VLM_ENV_VAR, "") == "1"
+
+
+def _get_vlm():
+    """Return (model, processor), loading the singleton on first call. Must
+    be called while holding `_vlm_lock`."""
+    global _vlm_model, _vlm_processor
+    if _vlm_model is None:
+        from mlx_vlm import load
+
+        from workbench.engine.loader import VLM_MODEL
+
+        _vlm_model, _vlm_processor = load(VLM_MODEL)
+    return _vlm_model, _vlm_processor
+
+
+class VlmImageProcessor(AttachmentProcessor):
+    """image/* -- genuine image *understanding* via a vision-language model
+    (mlx-vlm). Unlike ImageOcrProcessor (which
+    only transcribes text-in-image), this describes the image's actual
+    visual content -- photos, charts, diagrams, UI screenshots.
+
+    This is the "VLM-describe-to-text" sidecar: the VLM's output is plain
+    text, returned as a single-element `list[str]` exactly like every other
+    processor, so it becomes a `doc_chunk` segment through the same
+    unmodified append path. It is NOT true multimodal token interleaving --
+    the main text engine (workbench/engine/) never sees pixels, only the
+    VLM's textual description of them."""
+
+    def can_handle(self, mime_type: str, filename: str) -> bool:
+        if not mime_type.startswith("image/"):
+            return False
+        if _vlm_disabled_by_env():
+            return False
+        return VLM_AVAILABLE
+
+    def process(self, data: bytes, filename: str, mime_type: str) -> list[str]:
+        from mlx_vlm import generate
+        from mlx_vlm.prompt_utils import apply_chat_template
+
+        suffix = os.path.splitext(filename)[1] or ".png"
+        fd, tmp_path = tempfile.mkstemp(prefix="workbench-vlm-", suffix=suffix)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+
+            with _vlm_lock:
+                model, processor = _get_vlm()
+                prompt = apply_chat_template(
+                    processor, model.config, _VLM_DESCRIBE_PROMPT, num_images=1)
+                result = generate(
+                    model, processor, prompt,
+                    image=[tmp_path], max_tokens=_VLM_MAX_TOKENS, verbose=False)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        text = (result.text or "").strip()
+        if not text:
+            return [f"[image {filename}: VLM returned no description]"]
+        return [text]
+
+
 # `ocrmac` (pyobjc + Apple Vision) is macOS-only and may not build/import on
 # every machine -- the import is optional so the whole package (and every
 # other processor) still works without it. If unavailable at runtime,
@@ -191,6 +312,7 @@ class FallbackProcessor(AttachmentProcessor):
 _PROCESSORS: list[AttachmentProcessor] = [
     TextProcessor(),
     PdfProcessor(),
+    VlmImageProcessor(),
     ImageOcrProcessor(),
     FallbackProcessor(),
 ]

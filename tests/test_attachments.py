@@ -16,7 +16,9 @@ from workbench.attachments.processors import (
     OCR_AVAILABLE,
     PdfProcessor,
     TextProcessor,
-    process_attachment)
+    VlmImageProcessor,
+    process_attachment,
+)
 from workbench.attachments.store import AttachmentStore, kind_for_mime
 
 
@@ -165,6 +167,17 @@ def test_dispatch_picks_pdf_processor():
     assert any("PDF dispatch check" in c for c in chunks)
 
 
+def test_dispatch_picks_image_ocr_processor(monkeypatch):
+    # VlmImageProcessor now sits ahead of ImageOcrProcessor in the registry
+    # so force it off via the documented opt-out so this test keeps
+    # exercising the OCR dispatch path specifically, without touching a
+    # real (multi-GB, network-downloaded) VLM.
+    monkeypatch.setenv("WORKBENCH_DISABLE_VLM", "1")
+    data = _make_png_with_text("Dispatch OCR")
+    chunks = process_attachment(data, "pic.png", "image/png")
+    assert chunks  # doesn't crash either way (OCR available or not)
+
+
 def test_dispatch_picks_fallback_for_unknown_mime():
     chunks = process_attachment(b"\x00\x01", "weird.bin", "application/x-weird")
     assert chunks == ["[attachment weird.bin: unsupported type application/x-weird]"]
@@ -222,9 +235,83 @@ def test_kind_for_mime():
 # real round-trip lives in tests/test_vlm_slow.py (@pytest.mark.slow).
 
 
+@pytest.fixture(autouse=True)
+def _reset_vlm_singleton(monkeypatch):
+    """The loaded VLM is a module-level singleton (see processors.py) so it
+    survives across process() calls within one server process -- but that
+    means tests must reset it, or an earlier test's mock model/processor
+    would leak into a later test."""
+    monkeypatch.setattr(processors_mod, "_vlm_model", None)
+    monkeypatch.setattr(processors_mod, "_vlm_processor", None)
+    # Default every test to "VLM importable, not disabled" unless the test
+    # itself overrides one of these.
+    monkeypatch.setattr(processors_mod, "VLM_AVAILABLE", True)
+    monkeypatch.delenv("WORKBENCH_DISABLE_VLM", raising=False)
+
+
+def test_vlm_processor_registered_before_ocr_processor():
+    """Registry order: images should try the VLM first, OCR is the
+    fallback when the VLM is disabled/unavailable."""
+    kinds = [type(p) for p in _PROCESSORS]
+    assert VlmImageProcessor in kinds
+    assert ImageOcrProcessor in kinds
+    assert kinds.index(VlmImageProcessor) < kinds.index(ImageOcrProcessor)
+
+
+def test_vlm_can_handle_images_when_available_and_enabled():
+    proc = VlmImageProcessor()
+    assert proc.can_handle("image/png", "pic.png")
+    assert proc.can_handle("image/jpeg", "pic.jpg")
+    assert not proc.can_handle("application/pdf", "doc.pdf")
+    assert not proc.can_handle("text/plain", "notes.txt")
+
+
+def test_vlm_can_handle_false_when_mlx_vlm_not_importable(monkeypatch):
+    monkeypatch.setattr(processors_mod, "VLM_AVAILABLE", False)
+    proc = VlmImageProcessor()
+    assert not proc.can_handle("image/png", "pic.png")
+
+
+def test_vlm_can_handle_false_when_disabled_via_env_var(monkeypatch):
+    monkeypatch.setenv("WORKBENCH_DISABLE_VLM", "1")
+    proc = VlmImageProcessor()
+    assert not proc.can_handle("image/png", "pic.png")
+
+
+class _FakeVlmModel:
+    config = object()
+
+
 class _FakeGenerationResult:
     def __init__(self, text):
         self.text = text
+
+
+def _install_fake_mlx_vlm(monkeypatch, description="A red square on a white background."):
+    """Monkeypatch mlx_vlm's load()/generate()/apply_chat_template so
+    VlmImageProcessor.process() never touches a real model or the network.
+    Returns (load_calls, generate_calls) lists for assertions."""
+    import mlx_vlm
+    import mlx_vlm.prompt_utils as prompt_utils_mod
+
+    load_calls = []
+    generate_calls = []
+
+    def fake_load(repo_id, *args, **kwargs):
+        load_calls.append(repo_id)
+        return _FakeVlmModel(), object()
+
+    def fake_apply_chat_template(processor, config, prompt, **kwargs):
+        return prompt
+
+    def fake_generate(model, processor, prompt, image=None, **kwargs):
+        generate_calls.append({"prompt": prompt, "image": image, "kwargs": kwargs})
+        return _FakeGenerationResult(description)
+
+    monkeypatch.setattr(mlx_vlm, "load", fake_load)
+    monkeypatch.setattr(mlx_vlm, "generate", fake_generate)
+    monkeypatch.setattr(prompt_utils_mod, "apply_chat_template", fake_apply_chat_template)
+    return load_calls, generate_calls
 
 
 def _tiny_png_bytes() -> bytes:
@@ -237,3 +324,88 @@ def _tiny_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def test_vlm_process_returns_mocked_description(monkeypatch):
+    pytest.importorskip("mlx_vlm")
+    _install_fake_mlx_vlm(monkeypatch)
+    proc = VlmImageProcessor()
+    chunks = proc.process(_tiny_png_bytes(), "pic.png", "image/png")
+    assert chunks == ["A red square on a white background."]
+
+
+def test_vlm_process_loads_model_once_across_calls(monkeypatch):
+    pytest.importorskip("mlx_vlm")
+    load_calls, generate_calls = _install_fake_mlx_vlm(monkeypatch)
+
+    proc = VlmImageProcessor()
+    data = _tiny_png_bytes()
+    proc.process(data, "a.png", "image/png")
+    proc.process(data, "b.png", "image/png")
+
+    assert len(load_calls) == 1, "VLM must be a lazily-loaded singleton, not reloaded per image"
+    assert len(generate_calls) == 2
+
+
+def test_vlm_process_calls_generate_with_image_and_prompt(monkeypatch):
+    pytest.importorskip("mlx_vlm")
+    load_calls, generate_calls = _install_fake_mlx_vlm(monkeypatch)
+
+    proc = VlmImageProcessor()
+    proc.process(_tiny_png_bytes(), "pic.png", "image/png")
+
+    assert len(generate_calls) == 1
+    call = generate_calls[0]
+    # image is passed as a path (str) or list of one path -- either way it
+    # must reference a real file on disk at call time (temp file written by
+    # the processor).
+    image_arg = call["image"]
+    image_path = image_arg[0] if isinstance(image_arg, list) else image_arg
+    assert isinstance(image_path, str) and image_path
+
+
+def test_vlm_process_generation_error_propagates(monkeypatch):
+    """A real mlx-vlm failure (bad image, OOM, etc.) must surface as a raised
+    exception -- the /attachments endpoint's try/except turns any exception
+    from process_attachment into a 400, never a silent placeholder."""
+    pytest.importorskip("mlx_vlm")
+    import mlx_vlm
+    import mlx_vlm.prompt_utils as prompt_utils_mod
+
+    def fake_load(repo_id, *args, **kwargs):
+        return _FakeVlmModel(), object()
+
+    def fake_apply_chat_template(processor, config, prompt, **kwargs):
+        return prompt
+
+    def fake_generate(*args, **kwargs):
+        raise RuntimeError("simulated generation failure")
+
+    monkeypatch.setattr(mlx_vlm, "load", fake_load)
+    monkeypatch.setattr(mlx_vlm, "generate", fake_generate)
+    monkeypatch.setattr(prompt_utils_mod, "apply_chat_template", fake_apply_chat_template)
+
+    proc = VlmImageProcessor()
+    with pytest.raises(RuntimeError, match="simulated generation failure"):
+        proc.process(_tiny_png_bytes(), "pic.png", "image/png")
+
+
+def test_dispatch_picks_vlm_over_ocr_when_enabled(monkeypatch):
+    pytest.importorskip("mlx_vlm")
+    _install_fake_mlx_vlm(monkeypatch, description="A photo of a cat on a windowsill.")
+    chunks = process_attachment(_tiny_png_bytes(), "pic.png", "image/png")
+    assert chunks == ["A photo of a cat on a windowsill."]
+
+
+def test_dispatch_falls_back_to_ocr_when_vlm_disabled_via_env(monkeypatch):
+    """WORKBENCH_DISABLE_VLM=1 must route images to OCR (text-extraction behavior)
+    instead of the VLM, without calling mlx-vlm at all."""
+    pytest.importorskip("mlx_vlm")
+    _load_calls, generate_calls = _install_fake_mlx_vlm(monkeypatch)
+    monkeypatch.setenv("WORKBENCH_DISABLE_VLM", "1")
+
+    chunks = process_attachment(_tiny_png_bytes(), "pic.png", "image/png")
+
+    assert not generate_calls, "VLM must not be invoked when disabled via env var"
+    if OCR_AVAILABLE:
+        assert chunks  # OCR path ran (result depends on OCR reading a blank red square)
+    else:
+        assert chunks == ["[image pic.png: OCR unavailable]"]
