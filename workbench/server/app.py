@@ -476,6 +476,7 @@ def create_app(engine, tokenizer) -> FastAPI:
                         await ws.send_json(
                             protocol.error_msg("generation in progress"))
                         continue
+                    _append_attachment_segments(ctx, msg.get("attachment_ids", []))
                     _append_framed_message(
                         ctx, frame_message(tokenizer, "user", msg["text"]),
                         content_actor="user")

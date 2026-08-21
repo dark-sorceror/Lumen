@@ -142,3 +142,44 @@ def test_top_logprobs_request_must_be_a_non_negative_int():
         with pytest.raises(ValueError):
             parse_client_msg(
                 '{"type": "user_message", "text": "hi", "top_k_logprobs": %s}' % bad)
+
+
+def test_parse_user_message_with_attachment_ids():
+    import json
+    raw = json.dumps({"type": "user_message", "text": "hey",
+                      "attachment_ids": ["abc123", "def456"]})
+    msg = parse_client_msg(raw)
+    assert msg == {"type": "user_message", "text": "hey",
+                   "attachment_ids": ["abc123", "def456"]}
+
+
+def test_parse_user_message_with_empty_attachment_ids():
+    assert parse_client_msg(
+        '{"type": "user_message", "text": "hi", "attachment_ids": []}'
+    ) == {"type": "user_message", "text": "hi", "attachment_ids": []}
+
+
+def test_parse_user_message_without_attachment_ids_still_valid():
+    # Existing wire clients that never send attachment_ids must stay valid.
+    assert parse_client_msg('{"type": "user_message", "text": "hey"}') == {
+        "type": "user_message", "text": "hey"}
+
+
+def test_parse_user_message_non_list_attachment_ids_rejected():
+    import json
+    import pytest
+    for bad in ("abc123", 5, {"a": 1}, None):
+        with pytest.raises(ValueError):
+            parse_client_msg(json.dumps(
+                {"type": "user_message", "text": "hey", "attachment_ids": bad}))
+
+
+def test_parse_user_message_non_string_items_in_attachment_ids_rejected():
+    import json
+    import pytest
+    with pytest.raises(ValueError):
+        parse_client_msg(json.dumps(
+            {"type": "user_message", "text": "hey", "attachment_ids": ["ok", 5]}))
+
+
+# -- v1.1: get_context / preview_edit / apply_edit ---------------------------

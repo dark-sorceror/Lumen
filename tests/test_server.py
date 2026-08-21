@@ -960,3 +960,81 @@ def test_sniff_ok_helper_direct():
 
 
 # ------------------------------------------------- Native tool calling
+
+
+@pytest.mark.timeout(10)
+def test_attachment_doc_chunks_appear_before_user_msg_in_context():
+    """The uploaded attachment's extracted text must show up as doc_chunk
+    segment(s) in get_context, positioned before the user_msg segment (attachment chunks are appended BEFORE the user's
+    framed turn). Content here is digit-token text ("50 51") so it survives
+    FakeTokenizer.encode (which int()-parses whitespace-separated tokens,
+    same convention every other WS test in this file relies on)."""
+    engine = ScriptedEngine()
+    client = make_client(engine)
+    r = client.post("/attachments", files={
+        "file": ("notes.txt", b"50 51", "text/plain")})
+    attachment_id = r.json()["id"]
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7",
+                      "attachment_ids": [attachment_id]})
+        drain_until(ws, "done")
+        ws.send_json({"type": "get_context"})
+        msg = ws.receive_json()
+
+    assert msg["type"] == "context"
+    kinds = [s["kind"] for s in msg["segments"]]
+    # doc_chunk first, then the user frame (scratch, user_msg, scratch),
+    # then the assistant frame.
+    assert kinds == ["doc_chunk", "scratch", "user_msg", "scratch",
+                     "scratch", "assistant_msg", "scratch"]
+    doc_seg = msg["segments"][0]
+    # The extracted content ("50 51") is preserved verbatim,
+    # but the FIRST chunk of an attachment now carries a leading data/not-
+    # instructions delimiter -- assert containment (not exact equality) so
+    # this test survives that additive change.
+    from workbench.server.app import _ATTACHMENT_PREFACE
+    assert doc_seg["text"] == _ATTACHMENT_PREFACE + "50 51"
+    assert "50 51" in doc_seg["text"]
+    assert doc_seg["text"].startswith(_ATTACHMENT_PREFACE)
+    assert doc_seg["provenance"] == "attachment:notes.txt"
+    assert doc_seg["editable_by"] == "user"
+    user_idx = kinds.index("user_msg")
+    assert kinds.index("doc_chunk") < user_idx
+
+    # The engine's prompt must include the doc chunk's extracted-content
+    # tokens [50, 51] as a contiguous subsequence (the preface's English
+    # words now precede them as FakeTokenizer sentinel-999 tokens, so exact
+    # prefix equality no longer holds -- subsequence containment is the
+    # correct, non-weakened assertion here).
+    prompt0 = engine.prompts[0]
+    assert any(prompt0[i:i + 2] == [50, 51] for i in range(len(prompt0) - 1))
+
+
+@pytest.mark.timeout(10)
+def test_attachment_multiple_chunks_all_appended_in_order():
+    engine = ScriptedEngine()
+    client = make_client(engine)
+    # Two separate uploads, referenced in order.
+    r1 = client.post("/attachments", files={
+        "file": ("a.txt", b"11", "text/plain")})
+    r2 = client.post("/attachments", files={
+        "file": ("b.txt", b"22", "text/plain")})
+    id1, id2 = r1.json()["id"], r2.json()["id"]
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7",
+                      "attachment_ids": [id1, id2]})
+        drain_until(ws, "done")
+        ws.send_json({"type": "get_context"})
+        msg = ws.receive_json()
+
+    doc_chunks = [s for s in msg["segments"] if s["kind"] == "doc_chunk"]
+    # Each attachment's first (here, only) chunk is prefaced
+    # with the data/not-instructions delimiter -- assert the extracted
+    # content is present (substring) rather than exact chunk-text equality.
+    assert len(doc_chunks) == 2
+    assert doc_chunks[0]["text"].endswith("11")
+    assert doc_chunks[1]["text"].endswith("22")
+    from workbench.server.app import _ATTACHMENT_PREFACE
+    assert all(c["text"].startswith(_ATTACHMENT_PREFACE) for c in doc_chunks)
