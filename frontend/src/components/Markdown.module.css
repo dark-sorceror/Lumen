@@ -1,0 +1,175 @@
+.markdown {
+  /* Font size is inherited from the message bubble (ChatMessage.module.css
+     .user / .assistant, 0.85rem, matching the sidebar's recent-chat row
+     text size) so it's not repeated here. */
+  line-height: 1.6;
+  /* ChatMessage.module.css's .bubble sets `white-space: pre-wrap` so plain
+     (non-markdown) text preserves literal newlines; that's inherited here
+     too and would turn CommonMark's soft line breaks (a single "\n" inside
+     a paragraph, meant to render as a space) into forced hard breaks.
+     Markdown content's line breaks are governed by real block elements
+     (<p>, <br>, list items, ...) instead, so reset to normal here -- .markdown pre/code
+     below re-opt back into `white-space: pre` where it's actually wanted. */
+  white-space: normal;
+}
+
+/* Trim the leading/trailing block margin so a single short paragraph (the
+   overwhelmingly common case) doesn't add extra vertical space inside the
+   user pill or above/below the assistant answer -- the bubble's own
+   padding/line-height already does that job. */
+.markdown > *:first-child {
+  margin-top: 0;
+}
+
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0.5em 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.markdown h1 {
+  font-size: 1.35em;
+}
+
+.markdown h2 {
+  font-size: 1.2em;
+}
+
+.markdown h3 {
+  font-size: 1.08em;
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 1em;
+}
+
+.markdown strong {
+  font-weight: 600;
+}
+
+.markdown em {
+  font-style: italic;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+
+.markdown li {
+  margin: 0.2em 0;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 0.2em 0;
+}
+
+.markdown li input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+
+.markdown blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 0.85em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.markdown blockquote p {
+  margin: 0.3em 0;
+}
+
+.markdown a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+
+.markdown a:hover {
+  text-decoration-color: currentColor;
+}
+
+.markdown code {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.markdown table {
+  margin: 0.6em 0;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+
+.markdown th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.markdown hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* Streaming cursor -- swapped in for the sentinel inline-code span emitted
+   by `withCursor` (see Markdown.tsx). Kept visually identical to the
+   previous plain trailing-span cursor: a small blinking rectangle. */
+.cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: var(--foreground);
+  opacity: 0.55;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor {
+    animation: none;
+  }
+}
