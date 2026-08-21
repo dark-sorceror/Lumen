@@ -1,0 +1,348 @@
+/* Right-side slide-over overlay -- deliberately NOT a flex sibling of
+   .main's children, so it can never compress the centered message column
+   or composer dock. Fixed position, own stacking context above the sticky
+   header (z-index 10). */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.15);
+  z-index: 15;
+  animation: fadeIn 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim {
+    animation: none;
+  }
+}
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(400px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--composer-bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  transform: translateX(100%);
+  transition: transform 220ms ease-out;
+  will-change: transform;
+}
+
+.panelOpen {
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    transition: none;
+  }
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.closeBtn:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.streamingHint {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  background: var(--user-pill);
+  border-bottom: 1px solid var(--border);
+}
+
+.errorBanner {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  font-size: 0.78rem;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.empty {
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem;
+  background: var(--background);
+}
+
+/* Framing/scaffold (kind=scratch) segments are always editable_by=none;
+   de-emphasize them so real conversational content stands out. */
+.cardMuted {
+  opacity: 0.55;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+
+.badgeSystem {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.badgeUser {
+  background: rgba(217, 119, 6, 0.15);
+  color: #b45309;
+}
+
+.badgeAssistant {
+  background: rgba(5, 150, 105, 0.15);
+  color: #059669;
+}
+
+.badgeThought {
+  background: rgba(147, 51, 234, 0.15);
+  color: #9333ea;
+}
+
+.badgeDoc {
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+
+.badgeScratch {
+  background: rgba(120, 120, 120, 0.15);
+  color: var(--muted-foreground);
+}
+
+@media (prefers-color-scheme: dark) {
+  .badgeSystem {
+    color: #a5b4fc;
+  }
+  .badgeUser {
+    color: #fcd34d;
+  }
+  .badgeAssistant {
+    color: #6ee7b7;
+  }
+  .badgeThought {
+    color: #d8b4fe;
+  }
+  .badgeDoc {
+    color: #7dd3fc;
+  }
+}
+
+.provenance {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lockIcon {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.editBtn {
+  flex-shrink: 0;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.editBtn:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.text {
+  margin: 0;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.editArea {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--composer-bg);
+  color: var(--foreground);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--muted-foreground);
+}
+
+.impactNote {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.impactNotePending {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  font-style: italic;
+  animation: pulseOpacity 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .impactNotePending {
+    animation: none;
+    opacity: 0.65;
+  }
+}
+
+@keyframes pulseOpacity {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.cancelBtn,
+.applyBtn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  background: transparent;
+  color: var(--foreground);
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.cancelBtn:hover:not(:disabled) {
+  background: var(--user-pill);
+}
+
+.cancelBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.applyBtn {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--accent);
+}
+
+.applyBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
