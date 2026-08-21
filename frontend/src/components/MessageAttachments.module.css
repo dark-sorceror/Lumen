@@ -1,0 +1,103 @@
+/* Read-only attachment strip shown ABOVE a sent user message's bubble (see
+   MessageAttachments.tsx and its call site in ChatMessage.tsx -- a sibling
+   of `.bubble`, not nested inside it, so it sits directly on the page
+   background rather than the bubble's grey pill). Right-aligned to match the
+   user column: chips lay out oldest-to-newest left-to-right but the ROW
+   itself hugs the column's right edge, so as more attachments are added the
+   row grows leftward with the newest chip on the right. `max-width: 100%`
+   plus `flex-wrap: wrap` keeps a long row from overflowing the column --
+   it wraps instead, still right-aligned on each line. Chips are sized down
+   from the composer's AttachmentRow (76px) since this is a compact,
+   already-sent echo rather than an actively-edited draft. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  max-width: 100%;
+  margin-bottom: 0.4rem;
+}
+
+/* --- image chip: small cropped thumbnail, no filename (title attr carries
+   it as a native hover tooltip instead), matching AttachmentRow's language
+   at a slightly smaller scale. --- */
+.imageChip {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--composer-bg);
+}
+
+.imageThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* --- pdf / generic file chip: colored tile + icon, filename to the right. --- */
+.fileChip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 44px;
+  padding: 0 0.55rem 0 0.35rem;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--composer-bg);
+  max-width: 200px;
+}
+
+.fileTile {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fileTilePdf {
+  background: var(--danger);
+}
+
+.fileTileGeneric {
+  background: #6b7280;
+}
+
+.fileName {
+  min-width: 0;
+  max-width: 150px;
+  font-size: 0.74rem;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Openable image/pdf chips are rendered as <button> (see
+   MessageAttachments.tsx). Reset the native button chrome so they look
+   identical to the div chips, and add a hover affordance (brighter border)
+   signalling they open the media viewer. The image chip additionally needs
+   its UA button padding zeroed so the thumbnail still fills the 60px box. */
+.clickable {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.imageChip.clickable {
+  padding: 0;
+}
+
+.clickable:hover {
+  border-color: var(--muted-foreground);
+}

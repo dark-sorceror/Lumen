@@ -7,6 +7,7 @@ import type {
   ProcessItem,
 } from "@/hooks/useChatSocket";
 import Markdown, { withCursor } from "./Markdown";
+import MessageAttachments from "./MessageAttachments";
 import styles from "./ChatMessage.module.css";
 
 type Props = {
@@ -150,6 +151,9 @@ export default function ChatMessage({ message, isStreaming }: Props) {
   return (
     <div className={`${styles.row} ${isUser ? styles.rowUser : styles.rowAssistant}`}>
      <div className={`${styles.column} ${isUser ? styles.columnUser : styles.columnAssistant}`}>
+      {isUser && message.attachments && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} />
+      )}
       {isUser ? (
         <div className={`${styles.bubble} ${styles.user}`}>
           <div className={styles.text}>
