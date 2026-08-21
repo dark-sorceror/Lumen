@@ -1,0 +1,217 @@
+.composer {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.65rem 0.75rem 0.55rem 0.95rem;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--composer-bg);
+  box-shadow: var(--composer-shadow);
+  transition:
+    box-shadow 200ms ease-out,
+    transform 200ms ease-out,
+    background-color 200ms ease-out;
+  will-change: transform;
+}
+
+/* Focus elevation. Transform + shadow only -- zero layout shift. The
+   lift composes with the gradient ring because the ring is this same
+   element's ::before (it rides along with the transform), and with the
+   centered->bottom animation because that animates flex-grow on an ancestor
+   (.stage), never transform on the composer itself. In dark mode the
+   elevated shadow variable also carries a faint light inset keyline and the
+   surface brightens slightly, since pure drop shadows barely read on dark
+   backgrounds. */
+.composer:focus-within,
+.composer.streaming {
+  transform: translateY(-2px);
+  box-shadow: var(--composer-shadow-elevated);
+  background: var(--composer-bg-elevated);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer:focus-within,
+  .composer.streaming {
+    transform: none;
+  }
+}
+
+/* Animated gradient ring: an absolutely-positioned, mask-clipped pseudo-
+   element sitting just outside the composer's own hairline border. It is
+   fully transparent at rest and fades in (opacity only, no layout shift) on
+   focus-within or while streaming. Because the interior is masked out, the
+   composer's real background (var(--composer-bg)) shows through untouched
+   in both themes -- no separate fill color to keep in sync. */
+.composer::before {
+  content: "";
+  position: absolute;
+  inset: -1.8px;
+  border-radius: 25.8px;
+  padding: 1.8px;
+  background: linear-gradient(100deg, #9e7aff 0%, #fe8bbb 25%, #ffbd7a 50%, #f8ead4 75%, #9e7aff 100%);
+  background-size: 600% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  animation: shift-gradient 20s linear infinite;
+  animation-play-state: paused;
+  transition: opacity 200ms ease;
+}
+
+@supports (color: color(display-p3 1 1 1)) {
+  .composer::before {
+    background: linear-gradient(
+      100deg,
+      color(display-p3 0.6196 0.4784 1 / 1) 0%,
+      color(display-p3 0.9961 0.5451 0.7333 / 1) 25%,
+      color(display-p3 1 0.7412 0.4784 / 1) 50%,
+      color(display-p3 0.9725 0.9176 0.7647 / 1) 75%,
+      color(display-p3 0.6196 0.4784 1 / 1) 100%
+    );
+    background-size: 600% 100%;
+  }
+}
+
+.composer:focus-within::before,
+.composer.streaming::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+@keyframes shift-gradient {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: -600% 0%;
+  }
+}
+
+/* The real <input type="file"> the toolbar's attach button proxies a click
+   to. Visually hidden (not `display:none`, which some browsers exclude
+   from the tab order / programmatic .click() in edge cases) but otherwise
+   fully inert -- it never receives layout space or focus of its own. */
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.15rem;
+}
+
+.toolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.iconBtn {
+  flex-shrink: 0;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.7rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chipActive {
+  background: var(--user-pill);
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.chipIcon {
+  flex-shrink: 0;
+}
+
+.chevron {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.sendBtn {
+  flex-shrink: 0;
+  width: 2.05rem;
+  height: 2.05rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.sendBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

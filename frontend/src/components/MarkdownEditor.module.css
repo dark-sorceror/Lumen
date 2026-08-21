@@ -1,0 +1,144 @@
+/* Wraps the Lexical RichTextPlugin's fragment (the contentEditable div plus
+   its sibling placeholder div) so the placeholder can be absolutely
+   positioned directly on top of the (empty) contentEditable -- the same
+   trick used by every Lexical example. Shrink-wraps to its child; the actual
+   scroll/height constraints live on .editor itself, not here, so they don't
+   have to be duplicated on two elements. */
+.editorShell {
+  position: relative;
+  width: 100%;
+}
+
+/* Mirrors the old .textarea rule in Composer.module.css: same min/max
+   height (auto-grows with content, then scrolls internally), same padding,
+   font-size, line-height, and transparent background so the composer frame
+   (border, gradient ring, elevation) is unaffected by swapping the input
+   element. */
+.editor {
+  width: 100%;
+  min-height: 1.75rem;
+  max-height: 9rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.35rem 0.2rem;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.editorDisabled {
+  opacity: 0.5;
+}
+
+.placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0.5rem 0.35rem 0.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Rendered-markdown theme classes, handed to Lexical's `theme` config.
+   Deliberately subtle -- this is an input, not a message bubble -- but
+   consistent with Markdown.module.css's rendering of the same constructs
+   in the actual chat transcript. */
+.paragraph {
+  margin: 0;
+}
+
+.heading {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.15em 0;
+}
+
+.h1 {
+  font-size: 1.2em;
+}
+
+.h2 {
+  font-size: 1.1em;
+}
+
+.h3,
+.h4,
+.h5,
+.h6 {
+  font-size: 1.02em;
+}
+
+.quote {
+  margin: 0.2em 0;
+  padding: 0 0 0 0.7em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-style: normal;
+}
+
+.ul,
+.ol {
+  margin: 0.2em 0;
+  padding-left: 1.3em;
+}
+
+.listItem {
+  margin: 0.1em 0;
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+  /* Links stay visually distinct but non-interactive -- this is an editor,
+     not rendered output, so clicking should place the caret like normal
+     text, not navigate. */
+  cursor: text;
+}
+
+.bold {
+  font-weight: 600;
+}
+
+.italic {
+  font-style: italic;
+}
+
+.strikethrough {
+  text-decoration: line-through;
+}
+
+.underline {
+  text-decoration: underline;
+}
+
+.inlineCode {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.codeBlock {
+  display: block;
+  margin: 0.3em 0;
+  padding: 0.6rem 0.75rem;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  white-space: pre;
+}
