@@ -1,0 +1,329 @@
+/* Layout-only scaffolding (a future version will wire this to real chat
+   persistence). Occupies the row-2/col-1 cell of the app shell grid (see
+   page.module.css .shell) -- its 260px width comes from the grid's
+   `grid-template-columns: 260px 1fr`, so this just fills its cell (grid
+   items stretch to their cell's size by default). Sitting under the
+   full-width navbar (row 1) rather than beside it is what makes the
+   sidebar's top edge start below the navbar instead of at the viewport
+   top. The chat column to its right keeps its own centered max-width
+   regardless of the sidebar's presence. */
+.sidebar {
+  grid-row: 2;
+  grid-column: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .sidebar {
+    display: none;
+  }
+}
+
+/* Split button -- .newChatBtn (plain action, left/main segment)
+   and .newChatCaretBtn (opens the dropdown, right segment) are styled as
+   two segments of ONE button: no gap between them in .newChatWrap, only
+   the outer corners are rounded (the caret owns the right corners, the
+   label owns the left), and the caret's left border reads as the divider
+   between the two segments rather than two separate floating buttons. */
+/* The WRAP is the New chat pill: one border, rounded, one background. The
+   caret is NOT a full-height segment beside the label -- it's a compact
+   mini-button that floats as an ISLAND inside the pill's right side, inset
+   from the top / right / bottom edges by its own margin (so it's visibly
+   smaller than the pill height). The main label button fills the rest. */
+.newChatWrap {
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--composer-bg);
+}
+
+/* No wrap-level :hover -- the caret island is a descendant of the wrap, so a
+   wrap:hover would light the whole pill's border when the user is only over
+   the little caret. Instead each region owns its own hover feedback (the
+   label button fills its background, the caret island darkens), so hovering
+   one never visually activates the other. */
+
+.newChatBtn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.newChatBtn:hover {
+  background: var(--user-pill);
+}
+
+/* Rendered as an inline SVG (two equal-length 1.75px strokes crossing at
+   the exact center of a 16x16 viewBox) rather than a "+" text glyph. Text glyphs (and the
+   fullwidth "＋") carry font-specific vertical metrics that don't line up
+   with the "New chat" label's line box, so no amount of flex centering
+   makes them look centered. An SVG's geometry is centered in its own
+   viewBox by construction, so centering the icon's box (`align-items:
+   center` on .newChatBtn) is equivalent to centering the glyph itself --
+   there's no font-metric mismatch left to compensate for. `flex: 0 0 auto`
+   keeps it from being squashed by the label's `min-width: 0`. */
+.newChatIcon {
+  flex: 0 0 auto;
+  display: block;
+  color: currentColor;
+}
+
+.newChatLabel {
+  line-height: 1;
+}
+
+/* The left border is the segment divider between the label and the
+   caret -- deliberately drawn here (not as a separate divider element) so
+   it reads as one control with two regions. */
+/* The caret is a compact island floating inside the pill's right side:
+   `margin` insets it from the top / right / bottom edges (so it's shorter
+   than the pill and clearly a separate smaller element), it has its own
+   rounded corners and a subtle resting background, and it sits above the
+   pill via a small left margin gap. */
+.newChatCaretBtn {
+  flex-shrink: 0;
+  width: 1.7rem;
+  margin: 0.28rem 0.28rem 0.28rem 0.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A subtle border keeps the island reading as a distinct element even
+     when the label button's hover fills its background with the same
+     --user-pill shade. */
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--user-pill);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Same treatment as .newChatIcon above: a chevron drawn as strokes
+   centered in a 16x16 viewBox, not a "▾" text glyph, so its geometric
+   center (not a font baseline) is what .newChatCaretBtn's `align-items:
+   center` centers against. The path's bounding box (x:4-12, y:6-10) is
+   centered on the viewBox's (8,8) midpoint, so the chevron itself sits
+   dead-center in the island rather than reading bottom-heavy. Sized
+   identically to .newChatIcon (16x16) so both segments of the split
+   button share the same optical scale. */
+.newChatCaretIcon {
+  flex: 0 0 auto;
+  display: block;
+  /* Optical nudge: a downward chevron's open top makes it read slightly high
+     against the island's geometric center; ~0.5px down centers it. */
+  transform: translateY(0.5px);
+}
+
+.newChatCaretBtn:hover,
+.newChatCaretBtn[aria-expanded="true"] {
+  /* Clearly stronger than --user-pill (the label's hover shade) so hovering
+     the island reads as activating only the island, never the whole pill. */
+  background: color-mix(in srgb, var(--user-pill), var(--foreground) 14%);
+  border-color: var(--muted-foreground);
+  color: var(--foreground);
+}
+
+/* Portaled to document.body (see Sidebar.tsx) -- position: fixed with a
+   viewport-relative top/left computed on open, so it escapes .sidebar's
+   overflow: hidden instead of being clipped by it. */
+.newChatMenu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  padding: 0.3rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--composer-bg-elevated);
+  box-shadow: var(--composer-shadow-elevated);
+  animation: newChatMenuIn 120ms ease-out;
+}
+
+@keyframes newChatMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .newChatMenu {
+    animation: none;
+  }
+}
+
+.newChatMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.newChatMenuItem:hover {
+  /* --user-pill (#2f2f2f dark) is nearly identical to the menu's elevated
+     background (#303030), so the hover was almost invisible. Mix toward the
+     foreground for a clearly-visible row highlight in both themes. */
+  background: color-mix(in srgb, var(--composer-bg-elevated), var(--foreground) 13%);
+}
+
+.newChatMenuIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  width: 13px;
+  color: var(--muted-foreground);
+}
+
+.history {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.historyLabel {
+  flex-shrink: 0;
+  padding: 0.4rem 0.5rem 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.historyList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.historyItem {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.historyItem:hover {
+  background: var(--user-pill);
+}
+
+/* Bottom-pinned Account/Settings/GitHub scaffolding. Sits below
+   the scrollable .history list (which has flex: 1 and pushes this to the
+   bottom), separated by a subtle top border to read as a distinct
+   section rather than more chat-history rows. Purely layout scaffolding --
+   no account/settings/repo surfaces exist yet. */
+.bottomSection {
+  flex-shrink: 0;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.bottomItem {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.bottomItem:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.bottomIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .newChatBtn,
+  .newChatCaretBtn,
+  .historyItem,
+  .bottomItem {
+    transition: none;
+  }
+}
