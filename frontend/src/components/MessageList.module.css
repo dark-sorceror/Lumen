@@ -1,0 +1,17 @@
+.list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 1.5rem;
+}
+
+/* When a timeline tick scroll-jumps to a message (scrollIntoView block:"start"),
+   leave a gap above it rather than pinning it flush to the top of the chat
+   viewport. */
+.messageAnchor {
+  scroll-margin-top: 1.5rem;
+}
