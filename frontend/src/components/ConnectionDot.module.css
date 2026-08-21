@@ -1,0 +1,33 @@
+/* Fixed px sizing (not rem/em) so the dot's box is never influenced by font
+   metrics, and flex: 0 0 auto so it can never grow/shrink and shift off its
+   own center. No vertical-align, no line-height, no position:relative "top"
+   nudge -- alignment with the adjacent status text is handled entirely by
+   the parent's `display: inline-flex; align-items: center` (see
+   page.module.css .status), which centers this box and the text's line box
+   on the same cross axis. */
+.dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  /* Optical-centering adjustment: align-items: center on the
+     parent centers this box on the *geometric* center of the adjacent
+     text's line box (its em-square), not on the text's visual ink. A
+     lowercase word like "disconnected" has no descenders, so its glyphs
+     sit entirely above the baseline -- the line box still reserves
+     descender space below the baseline that the word doesn't use, which
+     pulls the word's visual center (and thus how "aligned" it reads to the
+     eye) down relative to the geometric center the dot is centered on.
+     A ~1px translateY nudges the dot down to meet that visual center. Kept
+     as a transform (not margin) so it never perturbs flex sizing/height. */
+  transform: translateY(1px);
+}
+
+.on {
+  background: var(--dot-connected);
+}
+
+.off {
+  background: var(--dot-disconnected);
+}
