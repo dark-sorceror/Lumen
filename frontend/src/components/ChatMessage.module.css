@@ -1,0 +1,470 @@
+.row {
+  display: flex;
+  width: 100%;
+  animation: fadeIn 150ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rowUser {
+  justify-content: flex-end;
+}
+
+.rowAssistant {
+  justify-content: flex-start;
+}
+
+/* Wraps the bubble + its metadata footer so the footer aligns to the same
+   side as the message (right for user, left for assistant). */
+.column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.columnUser {
+  align-items: flex-end;
+  max-width: 70%;
+}
+
+.columnAssistant {
+  align-items: flex-start;
+  width: 100%;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+/* Differentiated attachment-token estimate (Feature 2): same muted family
+   as the rest of the footer, but the inline paperclip icon plus a slightly
+   higher opacity give it a distinct visual weight from the message's own
+   "~N tok" figure, so the two are never mistaken for one number. */
+.attachmentTokens {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--muted-foreground);
+  opacity: 0.9;
+}
+
+.attachmentTokens svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.1rem;
+  padding: 0.15rem;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.copyBtn:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.bubble {
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user {
+  /* No independent percentage cap here -- `.columnUser`'s max-width:70%
+     already bounds this element's containing block. A second percentage
+     max-width on top of that would resolve against the column's own final
+     (already-capped) pixel width, compounding down to ~49% (70% of 70%)
+     instead of reaching the intended 70%. 100% just means "fill whatever
+     the column allows"; short messages still hug their own content width
+     because `.columnUser`'s align-items: flex-end keeps this element
+     fit-content rather than stretched. */
+  max-width: 100%;
+  background: var(--user-pill);
+  color: var(--foreground);
+  /* Tightened (was 0.55rem 0.85rem) so a short message reads as a compact
+     pill rather than a chunky block. */
+  padding: 0.4rem 0.7rem;
+  border-radius: 18px;
+  line-height: 1.6;
+  /* Matches the sidebar's recent-chat row text size (Sidebar.module.css
+     .historyItem, 0.82rem) rather than standing out larger than the rest of
+     the chrome. */
+  font-size: 0.85rem;
+}
+
+.assistant {
+  width: 100%;
+  color: var(--foreground);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* Auto-visible thoughts block, implemented as a single <button> so the
+   entire block -- header row and one-liner/full body alike -- is one
+   keyboard-accessible toggle (aria-expanded reflects state; Enter/Space
+   both work natively). Kept quiet: small, muted, left-hairline indent,
+   tightened bottom margin so the answer stays visually dominant. */
+.thoughts {
+  display: block;
+  width: 100%;
+  /* Breathing room before the answer: the collapsed toggle (or the single
+     live streaming line) otherwise reads as glued to the first line of the
+     answer text below it. */
+  margin: 0 0 0.6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thoughtsHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  user-select: none;
+}
+
+.caret {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.caretOpen {
+  transform: rotate(90deg);
+}
+
+.thoughtsLines {
+  margin: 0.4rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.thoughtsLine {
+  margin-top: 0.4rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+/* The excerpt text shrinks and ellipsizes; the cursor is a separate flex
+   item, so it always stays visible immediately after the (possibly
+   truncated) text -- i.e. at the end of the live thinking line. */
+.thoughtsLineText {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.streamCursor {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 2px;
+  align-self: center;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+  animation: thoughtsBlink 1s step-start infinite;
+}
+
+@keyframes thoughtsBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamCursor {
+    animation: none;
+  }
+}
+
+.thoughtsFull {
+  margin-top: 0.5rem;
+  /* A larger gap below the expanded reasoning so it reads as separate from
+     the answer that follows it. */
+  margin-bottom: 0.9rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+}
+
+.thoughtsParagraph {
+  margin: 0 0 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.thoughtsParagraph:last-child {
+  margin-bottom: 0;
+}
+
+.text {
+  min-height: 1.2em;
+}
+
+/* --- long-user-message minimize ------------------------------- */
+/* Row holding the user bubble and, just outside it on the right, the
+   minimize chevron. Lives inside .columnUser (align-items: flex-end), so the
+   whole [bubble][chevron] group hugs the column's right edge. */
+.userBubbleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15rem;
+  max-width: 100%;
+}
+
+/* Chevron sits OUTSIDE the bubble on its right. Transparent until hovered
+   (per the design), then picks up the same subtle pill the other quiet
+   controls use. */
+.userToggle {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.userToggle:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+.userToggleIcon {
+  transition: transform 0.18s ease;
+}
+
+/* Collapsed: chevron points down (click to expand). Expanded: flipped up
+   (click to minimize). */
+.userToggleOpen {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .userToggleIcon {
+    transition: none;
+  }
+}
+
+/* Minimized state: clamp the message to ~6 lines with a trailing ellipsis.
+   -webkit-line-clamp is the pragmatic cross-browser (Chrome/Safari/Firefox)
+   multiline-ellipsis mechanism and matches USER_COLLAPSE_LINES in
+   ChatMessage.tsx. */
+.textClamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+
+/* --- native tool-call chips (process view) ---------------
+   Sits inside the same `.thoughts` toggle button as the reasoning stages
+   (collapsed live line or expanded paragraphs -- see ChatMessage.tsx), so
+   tool use reads as part of one continuous process rather than a bolted-on
+   feature. Kept quiet and text-first like the rest of the panel: no bright
+   accent color, just the existing muted/border tokens plus --danger for
+   errors. */
+.toolChips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.toolChip {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  background: var(--user-pill);
+}
+
+.toolChipError {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.toolChipIcon {
+  flex-shrink: 0;
+  font-size: 0.82em;
+  line-height: 1;
+}
+
+.toolChipLabel {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Only the argument list truncates; the surrounding name and parens (in
+   .toolChipLabel) are never clipped. inline-block + max-width lets the
+   ellipsis apply while keeping the closing paren after it visible. */
+.toolChipArgs {
+  display: inline-block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.toolChipResult {
+  color: inherit;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18rem;
+}
+
+.toolChipPending {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  opacity: 0.85;
+}
+
+.toolChipDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: toolChipPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes toolChipPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolChipDot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.toolLimitNote {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+
+/* --- streaming-only tool input/output JSON box (see ToolJsonBox in
+   ChatMessage.tsx) ----------------------------------------------------
+   Compact disclosure shown BELOW the one-liner while a tool call is the
+   trailing, not-yet-superseded process state. Deliberately quiet: same
+   --user-pill/--border language as the tool chips, just a small rounded
+   card instead of a pill, so it doesn't compete with the answer. */
+.toolJsonBox {
+  box-sizing: border-box;
+  max-width: 26rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--user-pill);
+}
+
+.toolJsonHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.toolJsonName {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.toolJsonBlock {
+  max-height: 12rem;
+  margin: 0 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--composer-bg);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.toolJsonBlock:last-child {
+  margin-bottom: 0;
+}
