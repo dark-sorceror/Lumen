@@ -1,0 +1,224 @@
+/* Conversation timeline rail (ChatGPT-style navigator). Rendered in page.tsx
+   as a SIBLING of the scrolling message list (.scroll), absolutely
+   positioned against .scrollArea -- a non-scrolling ancestor that never
+   moves. Because the rail's containing block is that non-scrolling box (not
+   the scroll viewport itself), it stays visually fixed/pinned in place while
+   the message list scrolls beneath it, instead of scrolling away with it.
+   It's also sized to sit in the empty gutter to the left of MessageList's
+   centered column, so it overlays that empty space rather than consuming
+   horizontal flow width from the column (which would otherwise squeeze the
+   chat/composer column narrower). `pointer-events: none` on the rail plus
+   `pointer-events: auto` on each tick keeps the (mostly empty) rail from
+   swallowing clicks/wheel events meant for the message column beneath it. */
+.rail {
+  position: absolute;
+  left: 0;
+  /* Full-height rail (top:0 bottom:0) with its ticks vertically CENTERED
+     (justify-content: center) -- so the cluster sits at the vertical middle
+     of the chat area and grows symmetrically up and down as messages are
+     added. */
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  /* LEFT-anchor the groups (not centered) so a group's left edge is fixed:
+     when a tick widens, the group grows rightward instead of re-centering
+     (which would drag the ticks' left edge leftward). This is what makes the
+     ticks expand strictly rightward. */
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem 0 1rem 14px;
+  /* Space BETWEEN date groups -- intentionally bigger than the tight
+     within-group tick gap (see .groupTicks) so groups read as separated
+     clusters. */
+  gap: 14px;
+  pointer-events: none;
+  z-index: 1;
+  /* Never clip: the hover tooltip below floats out past the rail's own
+     bounds (to the right, over the message column) and must not be cut off
+     by any overflow on an ancestor. */
+  overflow: visible;
+}
+
+/* Hidden below the same breakpoint Sidebar.module.css / page.module.css
+   already collapse the sidebar at -- screen real estate is tight there and
+   the rail is a nice-to-have, not core chat functionality. */
+@media (max-width: 720px) {
+  .rail {
+    display: none;
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  /* Left-anchored too, so the group's ticks and label share a fixed left
+     edge and widen rightward only. */
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.groupLabel {
+  font-size: 0.6rem;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted-foreground);
+  opacity: 0.75;
+  white-space: nowrap;
+  margin-bottom: 5px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.groupTicks {
+  display: flex;
+  flex-direction: column;
+  /* Left-anchor the ticks so their LEFT edge is fixed and they grow rightward
+     only. Left inset comes from .rail's padding-left (shared with the group
+     label so they line up). */
+  align-items: flex-start;
+  /* No gap between wraps: each .tickWrap carries its own padding as an
+     invisible hit zone, and butting them together means the whole rail is
+     hoverable with NO dead space between ticks (a 2px line alone is nearly
+     impossible to hover). */
+  gap: 0;
+  pointer-events: none;
+}
+
+.tickWrap {
+  position: relative;
+  display: flex;
+  pointer-events: auto;
+}
+
+/* The BUTTON is the hit target -- generous on every approach side (~14px tall
+   via vertical padding, ~24px reach to the right) and transparent, so the
+   clickable area exactly matches the hover area (and `cursor: pointer` covers
+   all of it), instead of the click landing only on the 2px visible bar.
+   Adjacent buttons butt together (groupTicks gap:0) so there's no dead space
+   between ticks. */
+.tick {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 6px 24px 6px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The visible bar. Its width (the magnet magnification) is driven by JS inline
+   style; the CSS transition smooths those per-frame updates into a fluid
+   ripple and glides back to base on mouse-leave. Left edge is fixed (the
+   button is left-anchored), so it grows rightward only. */
+.tickBar {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  transition: width 90ms ease-out, background-color 120ms ease;
+}
+
+/* Only the tick nearest/under the cursor gets the white bar (set from JS as
+   `.tickActive`, not `:hover`), so magnet-lengthened neighbors stay muted --
+   just longer. */
+.tickActive .tickBar {
+  background: var(--foreground);
+}
+
+.tick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Reduced-motion: the JS already skips the magnification (base lengths
+   only); drop the width transition too so any residual width change snaps
+   rather than animates. */
+@media (prefers-reduced-motion: reduce) {
+  .tick {
+    transition: background-color 120ms ease;
+  }
+}
+
+/* Glimpse tooltip: a floating popout card to the right of the hovered tick
+   (over the message column). Stacks the user message over a muted brief of
+   the assistant reply that answered it (both JS-truncated before reaching
+   this node). High z-index + `.rail`'s `overflow: visible` (and no overflow
+   on any ancestor in between) keep it floating above content, not clipped. */
+.tooltip {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  max-width: 260px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  background: var(--composer-bg-elevated);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  box-shadow: var(--composer-shadow-elevated);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: none;
+  z-index: 20;
+  animation: fadeIn 120ms ease-out;
+}
+
+/* User message line: primary text. */
+.tooltipUser {
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
+/* Assistant reply brief: muted, slightly smaller, with a subtle divider so
+   it reads as a secondary "here's how it was answered" line. */
+.tooltipReply {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+
+/* The tooltip previews render through the shared Markdown component (so
+   **bold**, `code`, links etc. show formatted) -- compact its output for the
+   small tooltip: no block margins, inherit the tiny tooltip font, and keep
+   headings/code from ballooning. */
+.tooltipUser :global(.markdown) > *,
+.tooltipReply :global(.markdown) > * {
+  margin: 0;
+  font-size: inherit;
+}
+.tooltipUser :global(.markdown),
+.tooltipReply :global(.markdown) {
+  font-size: inherit;
+}
+.tooltipUser :global(pre),
+.tooltipReply :global(pre) {
+  margin: 2px 0;
+  padding: 3px 5px;
+  font-size: 0.66rem;
+  max-height: 6rem;
+}
+.tooltipUser :global(h1),
+.tooltipUser :global(h2),
+.tooltipUser :global(h3),
+.tooltipReply :global(h1),
+.tooltipReply :global(h2),
+.tooltipReply :global(h3) {
+  font-size: inherit;
+  font-weight: 600;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
