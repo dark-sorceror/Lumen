@@ -22,6 +22,8 @@ from fastapi import (
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from workbench.attachments import kind_for_mime, process_attachment
+from workbench.attachments import store as attachment_store
 from workbench.context.manager import ContextManager
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.control import Control, ControlQueue
@@ -80,6 +82,83 @@ _IMAGE_MAGIC: dict[str, tuple[bytes, ...]] = {
 }
 
 
+def _detect_image_mime(data: bytes) -> str | None:
+    """Best-effort content sniff -> a concrete image (or pdf) mime, or None.
+    Used to RECOVER the real type when the browser sends a generic/absent
+    Content-Type (very common for pasted or "copied over" images, e.g. a
+    phone screenshot), which would otherwise be rejected as "unsupported" and
+    never reach the VLM. Signatures mirror _IMAGE_MAGIC plus TIFF/HEIC, which
+    clipboard paths commonly produce."""
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    if data.startswith(b"II*\x00") or data.startswith(b"MM\x00*"):
+        return "image/tiff"
+    # HEIC/HEIF: ISO-BMFF `ftyp` box with a heic/heif/mif1 brand (iPhone
+    # photos, sometimes screenshots synced from a phone).
+    if len(data) >= 12 and data[4:8] == b"ftyp" and data[8:12] in (
+            b"heic", b"heix", b"hevc", b"heim", b"heis", b"hevm", b"hevs",
+            b"mif1", b"msf1"):
+        return "image/heic"
+    if data.startswith(b"%PDF"):
+        return "application/pdf"
+    return None
+
+
+def _effective_mime(data: bytes, declared: str, filename: str) -> str:
+    """Reconcile the browser-declared Content-Type with what the bytes
+    actually are, so a real image with a generic/absent/wrong label still
+    routes to the image path (the VLM) instead of being rejected.
+
+    - Bytes clearly identify an image/pdf: trust them when `declared` is
+      generic/absent OR clearly disagrees with the bytes (mislabeled).
+    - `declared` is a specific type that matches the bytes: keep it.
+    - No content signature (e.g. text/*, which has none): keep `declared`,
+      leaving text handling to the mime/extension allowlist as before."""
+    detected = _detect_image_mime(data)
+    if detected is None:
+        return declared
+    specific = declared.startswith("image/") or declared == "application/pdf"
+    if specific and _sniff_ok(data, declared):
+        return declared
+    return detected
+
+
+def _sniff_ok(data: bytes, mime_type: str) -> bool:
+    """True if `data`'s magic bytes are consistent with the declared
+    `mime_type`, or if `mime_type` is a kind we don't sniff (text/*, the
+    extension-only allowlist, etc. -- those have no reliable magic bytes and
+    are left to the mime/extension allowlist alone)."""
+    if mime_type == "application/pdf":
+        return data.startswith(b"%PDF")
+    if mime_type == "image/webp":
+        return data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+    magics = _IMAGE_MAGIC.get(mime_type)
+    if magics is not None:
+        return any(data.startswith(m) for m in magics)
+    if mime_type.startswith("image/"):
+        # An image/* subtype we don't have a specific signature for (e.g.
+        # image/svg+xml, image/tiff): don't false-reject, just don't sniff.
+        return True
+    return True
+
+
+def _attachment_type_allowed(mime_type: str, filename: str) -> bool:
+    if mime_type.startswith("image/") or mime_type.startswith("text/"):
+        return True
+    if mime_type == "application/pdf":
+        return True
+    return filename.lower().endswith(_ALLOWED_EXTRA_EXTS)
+
+
+
 def _origin_allowed(origin: str | None) -> bool:
     """True if the WS Origin is absent (non-browser) or a loopback address."""
     if origin is None:
@@ -112,6 +191,44 @@ def _append_framed_message(ctx: ContextObject, segments: list[Segment],
         _append_segment(ctx, seg, actor=actor)
 
 
+def _append_attachment_segments(ctx: ContextObject, attachment_ids: list[str]) -> None:
+    """For each attachment_id (in order), look it up in the transient
+    AttachmentStore and, if found, append its extracted chunks as
+    `doc_chunk` Segments (actor="server", per the append-permission gate in
+    model.py: only the privileged server actor may mint segments outside the
+    wire's replace_text/delete/move allowlist). Unknown ids (bogus, or an
+    attachment that was popped/expired) are skipped silently -- an attachment
+    reference must never crash or block a turn.
+
+    Each doc_chunk carries provenance=f"attachment:{name}" (so the inspector
+    can badge/group it, and so it is visibly data, never system/model
+    authored -- "attachments are DATA, not
+    instructions" section) and editable_by=USER, so the user can delete an
+    individual chunk in the Context Inspector. This runs BEFORE the user's
+    own framed message is appended, so the doc chunks sit in the context
+    immediately before the user's question.
+
+    (A locked SCRATCH header segment per attachment, e.g. "[attachment:
+    name]", was considered for extra visual grouping in the inspector but
+    deliberately left out here to keep this minimal -- provenance on each
+    doc_chunk already carries the filename, so the header would be
+    redundant labeling, not new information.)"""
+    for attachment_id in attachment_ids:
+        record = attachment_store.get(attachment_id)
+        if record is None:
+            continue
+        for i, chunk_text in enumerate(record["chunks"]):
+            # Preface only the FIRST chunk of each attachment: a per-chunk repeat
+            # would be redundant noise once the reader has seen it once.
+            text = _ATTACHMENT_PREFACE + chunk_text if i == 0 else chunk_text
+            chunk_seg = Segment(
+                id=uuid.uuid4().hex, kind=SegmentKind.DOC_CHUNK, text=text,
+                editable_by=Editor.USER,
+                provenance=f"attachment:{record['name']}")
+            _append_segment(ctx, chunk_seg, actor="server")
+
+
+
 def create_app(engine, tokenizer) -> FastAPI:
     app = FastAPI(title="Lumen")
     # Allow cross-origin `fetch` (the /attachments upload) from any loopback
@@ -138,6 +255,75 @@ def create_app(engine, tokenizer) -> FastAPI:
         @app.get("/", response_class=HTMLResponse)
         def index():
             return (STATIC_DIR / "index.html").read_text()
+
+    @app.post("/attachments")
+    async def upload_attachment(request: Request, file: UploadFile = File(...)):
+        """Multipart upload: extraction happens here,
+        out-of-band from the WS connection, and the response id is later
+        referenced by a WS user_message's attachment_ids. Runs
+        process_attachment() in the default executor -- OCR/PDF extraction
+        can take real time and must not block the event loop (and, via
+        run_in_executor, doesn't interleave with WS handling either).
+
+        Guarded the same way as /ws (see _origin_allowed): a cross-origin
+        page in the user's browser could otherwise blind-POST files into the
+        transient attachment store even though it can't read the JSON
+        response (no CORS headers are sent)."""
+        if not _origin_allowed(request.headers.get("origin")):
+            raise HTTPException(status_code=403, detail="origin not allowed")
+        data = await file.read(_MAX_ATTACHMENT_BYTES + 1)
+        if len(data) > _MAX_ATTACHMENT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"attachment exceeds {_MAX_ATTACHMENT_BYTES} byte limit")
+        filename = file.filename or "upload"
+        # Reconcile the declared type with the actual bytes: a pasted/"copied
+        # over" image often arrives as application/octet-stream (or mislabeled),
+        # which the allowlist would reject and which would never reach the VLM.
+        # _effective_mime recovers the real image/pdf type from magic bytes so
+        # such images are still understood. (Text keeps its declared type.)
+        declared_mime = file.content_type or "application/octet-stream"
+        mime_type = _effective_mime(data, declared_mime, filename)
+        if not _attachment_type_allowed(mime_type, filename):
+            raise HTTPException(
+                status_code=400,
+                detail=f"unsupported attachment type: {mime_type!r}")
+        if not _sniff_ok(data, mime_type):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"attachment content does not match declared type "
+                        f"{mime_type!r}"))
+        loop = asyncio.get_running_loop()
+        try:
+            chunks = await loop.run_in_executor(
+                None, process_attachment, data, filename, mime_type)
+        except Exception as exc:
+            # Any extraction failure (corrupt/empty PDF -- fitz raises
+            # FileDataError/EmptyFileError; unidentifiable/mismatched image
+            # -- PIL raises UnidentifiedImageError; etc.) is a client-input
+            # problem, not a server bug -- 400, never an uncaught 500.
+            raise HTTPException(
+                status_code=400,
+                detail=f"could not process attachment: {exc}") from exc
+        kind = kind_for_mime(mime_type)
+        attachment_id = attachment_store.put(filename, kind, chunks)
+        joined = "\n".join(chunks)
+        return {
+            "id": attachment_id,
+            "name": filename,
+            "kind": kind,
+            # Effective (content-sniffed) mime and byte size, plus the FULL
+            # extracted text -- surfaced so the client's media viewer can show
+            # exactly what the model sees from this attachment alongside its
+            # file details (design: the white-box "what did the LLM get" view).
+            "mime": mime_type,
+            "size": len(data),
+            "chunk_count": len(chunks),
+            "chars": len(joined),
+            "text": joined,
+            "preview": joined[:120],
+        }
+
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):

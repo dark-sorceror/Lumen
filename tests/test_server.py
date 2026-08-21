@@ -1,3 +1,4 @@
+from workbench.server.app import _attachment_type_allowed, _effective_mime, _sniff_ok
 import threading
 import time
 
@@ -667,3 +668,295 @@ def test_index_served():
     r = make_client(ScriptedEngine()).get("/")
     assert r.status_code == 200
     assert "<html" in r.text.lower()
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_text_file_returns_id_and_metadata():
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("notes.txt", b"50 51", "text/plain")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "notes.txt"
+    assert body["kind"] == "file"
+    assert body["chunk_count"] == 1
+    assert body["chars"] == len("50 51")
+    assert body["preview"] == "50 51"
+    assert isinstance(body["id"], str) and body["id"]
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_pdf_kind():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "hello pdf")
+    data = doc.tobytes()
+    doc.close()
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("doc.pdf", data, "application/pdf")})
+    assert r.status_code == 200
+    assert r.json()["kind"] == "pdf"
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_rejects_disallowed_type():
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("virus.exe", b"MZ\x00\x00", "application/x-msdownload")})
+    assert r.status_code == 400
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_rejects_oversized_file():
+    client = make_client(ScriptedEngine())
+    from workbench.server.app import _MAX_ATTACHMENT_BYTES
+    oversized = b"a" * (_MAX_ATTACHMENT_BYTES + 1)
+    r = client.post("/attachments", files={
+        "file": ("big.txt", oversized, "text/plain")})
+    assert r.status_code == 413
+
+
+@pytest.mark.timeout(10)
+def test_unknown_attachment_id_handled_gracefully():
+    """An attachment_ids entry that doesn't resolve in the store must not
+    crash the turn -- it's simply skipped, and generation proceeds
+    normally."""
+    engine = ScriptedEngine()
+    client = make_client(engine)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7",
+                      "attachment_ids": ["does-not-exist"]})
+        drain_until(ws, "done")
+        ws.send_json({"type": "get_context"})
+        msg = ws.receive_json()
+
+    assert msg["type"] == "context"
+    kinds = [s["kind"] for s in msg["segments"]]
+    assert "doc_chunk" not in kinds
+    assert kinds == ["scratch", "user_msg", "scratch",
+                     "scratch", "assistant_msg", "scratch"]
+
+
+@pytest.mark.timeout(10)
+def test_user_message_without_attachment_ids_still_works():
+    """Existing wire clients that never send attachment_ids must be
+    unaffected (protocol addition is additive/optional)."""
+    with make_client(ScriptedEngine()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        assert drain_until(ws, "done") == {"type": "done", "finish_reason": "stop"}
+
+
+# ------------------------------- 400 not 500 on bad uploads
+
+@pytest.mark.timeout(10)
+def test_post_attachments_corrupt_pdf_returns_400():
+    """A garbage PDF (no valid %PDF magic bytes, so it's actually caught by
+    the content sniff before extraction even runs) must return
+    400, never a 500 -- the exact literal case reviewers flagged."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("bad.pdf", b"not a pdf", "application/pdf")})
+    assert r.status_code == 400
+    assert r.status_code != 500
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_pdf_with_pdf_magic_but_corrupt_body_returns_400():
+    """The load-bearing case: bytes that DO pass the magic-byte
+    sniff (start with %PDF, so the sniff lets them through) but are not a
+    valid PDF stream must still be caught by process_attachment()'s
+    try/except in the endpoint (fitz.FileDataError) and turned into a 400,
+    not an uncaught 500."""
+    client = make_client(ScriptedEngine())
+    data = b"%PDF-1.4\nthis is not a valid pdf body, just garbage\n%%EOF"
+    r = client.post("/attachments", files={
+        "file": ("bad.pdf", data, "application/pdf")})
+    assert r.status_code == 400
+    assert "could not process attachment" in r.json()["detail"]
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_empty_pdf_returns_400():
+    """An empty file declared as application/pdf must return 400, not 500
+    (and not a false-positive 200)."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("empty.pdf", b"", "application/pdf")})
+    assert r.status_code == 400
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_garbage_image_returns_400():
+    """A garbage image (bytes with no recognizable image magic, content_type
+    image/png) must return 400, not 500 and not a false-positive 200."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("bad.png", b"definitely not a real png file", "image/png")})
+    assert r.status_code == 400
+    assert r.status_code != 500
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_png_magic_but_corrupt_body_returns_400():
+    """For images: bytes that pass the PNG magic-byte sniff but
+    are not a decodable image (PIL.UnidentifiedImageError) must be caught by
+    the endpoint's try/except, not surfaced as a 500. Only meaningful when
+    OCR is available -- otherwise ImageOcrProcessor never touches PIL at all
+    and degrades to a graceful notice (200), same as the existing OCR
+    portability tests in test_attachments.py."""
+    from workbench.attachments.processors import OCR_AVAILABLE
+    if not OCR_AVAILABLE:
+        pytest.skip("ocrmac not available on this machine")
+    client = make_client(ScriptedEngine())
+    data = b"\x89PNG\r\n\x1a\n" + b"garbage after the PNG signature, not real chunk data"
+    r = client.post("/attachments", files={
+        "file": ("bad.png", data, "image/png")})
+    assert r.status_code == 400
+    assert "could not process attachment" in r.json()["detail"]
+
+
+# ---- image mime recovery (pasted/"copied over" screenshots) ----------------
+# ---- image mime recovery (pasted/"copied over" screenshots) ----------------
+def test_detect_image_mime_signatures():
+    from workbench.server.app import _detect_image_mime
+    assert _detect_image_mime(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8) == "image/png"
+    assert _detect_image_mime(b"\xff\xd8\xff\xe0" + b"\x00" * 8) == "image/jpeg"
+    assert _detect_image_mime(b"GIF89a" + b"\x00" * 8) == "image/gif"
+    assert _detect_image_mime(b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 8) == "image/webp"
+    assert _detect_image_mime(b"II*\x00" + b"\x00" * 8) == "image/tiff"
+    assert _detect_image_mime(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 8) == "image/heic"
+    assert _detect_image_mime(b"%PDF-1.7" + b"\x00" * 8) == "application/pdf"
+    assert _detect_image_mime(b"MZ\x00\x00 not an image") is None
+
+
+def test_effective_mime_recovers_generic_and_mislabeled_images():
+    from workbench.server.app import _effective_mime
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 8
+    # A pasted screenshot arriving as octet-stream (or with no type) is
+    # recovered to its real image type instead of being rejected.
+    assert _effective_mime(png, "application/octet-stream", "screenshot") == "image/png"
+    assert _effective_mime(png, "", "img") == "image/png"
+    # A mislabeled image (declared png, actually jpeg) is corrected to the
+    # real type rather than 400'd on the sniff mismatch.
+    assert _effective_mime(jpeg, "image/png", "photo.png") == "image/jpeg"
+    # A correctly-labeled image is left untouched.
+    assert _effective_mime(png, "image/png", "a.png") == "image/png"
+    # Text has no magic signature -> declared type is preserved (handled by
+    # the mime/extension allowlist, unchanged).
+    assert _effective_mime(b"hello world", "text/plain", "a.txt") == "text/plain"
+    # Non-image garbage with a generic type stays generic (still rejected
+    # downstream by the allowlist -- unchanged security posture).
+    assert _effective_mime(b"MZ garbage", "application/octet-stream", "x.bin") == "application/octet-stream"
+
+
+@pytest.mark.timeout(20)
+def test_post_attachments_octet_stream_png_routed_as_image(monkeypatch):
+    """A real PNG uploaded with a generic content-type and no extension (the
+    common "pasted/copied-over screenshot" shape) must now be accepted and
+    treated as an image, not 400'd as an unsupported type. VLM is disabled so
+    the test routes through the light OCR path instead of loading the model."""
+    import base64
+    monkeypatch.setenv("WORKBENCH_DISABLE_VLM", "1")
+    png_1x1 = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4"
+        "2mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("screenshot", png_1x1, "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "image"
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_happy_paths_still_pass_after_error_handling_fix():
+    """The 400-on-failure wrapping must not disturb the existing happy
+    paths: a real text file and a real fitz-generated PDF still succeed."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("notes.txt", b"hello world", "text/plain")})
+    assert r.status_code == 200
+
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "hello pdf")
+    data = doc.tobytes()
+    doc.close()
+    r = client.post("/attachments", files={
+        "file": ("doc.pdf", data, "application/pdf")})
+    assert r.status_code == 200
+
+
+# ------------------------------------- origin guard on POST
+
+@pytest.mark.timeout(10)
+def test_post_attachments_rejects_cross_origin():
+    """A cross-origin page must not be able to blind-POST
+    files into the attachment store -- same guard as /ws's _origin_allowed,
+    reused here."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments",
+                     files={"file": ("notes.txt", b"hello", "text/plain")},
+                     headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_allows_loopback_origin_and_no_origin():
+    """A loopback Origin (the served UI) and an absent Origin
+    (non-browser clients, tests) must both still work."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments",
+                     files={"file": ("notes.txt", b"hello", "text/plain")},
+                     headers={"Origin": "http://127.0.0.1:8321"})
+    assert r.status_code == 200
+
+    r = client.post("/attachments",
+                     files={"file": ("notes.txt", b"hello", "text/plain")})
+    assert r.status_code == 200
+
+
+# --------------------------------------- magic-byte sniffing
+
+@pytest.mark.timeout(10)
+def test_post_attachments_sniff_rejects_mismatched_declared_image_type():
+    """Declared image/png with bytes that are clearly not an
+    image (no PNG/JPEG/GIF/WEBP/BMP magic) must be rejected with 400."""
+    client = make_client(ScriptedEngine())
+    r = client.post("/attachments", files={
+        "file": ("photo.png", b"this is plain text, not a png", "image/png")})
+    assert r.status_code == 400
+    assert "does not match declared type" in r.json()["detail"]
+
+
+@pytest.mark.timeout(10)
+def test_post_attachments_sniff_accepts_real_png_magic_bytes():
+    """A file that legitimately starts with the PNG signature passes the
+    sniff check (extraction may still fail/degrade downstream, but not
+    because of the sniff)."""
+    from workbench.server.app import _sniff_ok
+    real_png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
+    assert _sniff_ok(real_png_header, "image/png")
+
+
+def test_sniff_ok_helper_direct():
+    """Unit-level coverage of _sniff_ok for each declared type it checks."""
+    from workbench.server.app import _sniff_ok
+    assert _sniff_ok(b"%PDF-1.4 ...", "application/pdf")
+    assert not _sniff_ok(b"not a pdf", "application/pdf")
+    assert _sniff_ok(b"\x89PNG\r\n\x1a\n", "image/png")
+    assert not _sniff_ok(b"nope", "image/png")
+    assert _sniff_ok(b"\xff\xd8\xff\xe0", "image/jpeg")
+    assert _sniff_ok(b"GIF89a", "image/gif")
+    assert _sniff_ok(b"BM" + b"\x00" * 10, "image/bmp")
+    assert _sniff_ok(b"RIFF\x00\x00\x00\x00WEBPVP8 ", "image/webp")
+    assert not _sniff_ok(b"RIFF\x00\x00\x00\x00XXXXVP8 ", "image/webp")
+    # Types we don't sniff (text/*, extension-allowlisted, unknown image
+    # subtypes) are always let through by _sniff_ok itself -- the mime/ext
+    # allowlist upstream is what gates those.
+    assert _sniff_ok(b"anything at all", "text/plain")
+    assert _sniff_ok(b"anything at all", "image/svg+xml")
+
+
+# ------------------------------------------------- Native tool calling
