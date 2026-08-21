@@ -1,0 +1,291 @@
+/* App shell: a 2x2 grid -- row 1 is the navbar, spanning the
+   full width; row 2 holds the sidebar (fixed-width column) and the chat
+   column (remaining width). This puts the sidebar's top edge under the
+   navbar rather than at the very top of the viewport, while still letting
+   .page keep its own internal centered max-width (.header, .greeting,
+   .composerDock, etc.) independent of the sidebar's width, so the chat
+   column stays centered within the space to the sidebar's right. */
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 260px 1fr;
+  height: 100dvh;
+  width: 100%;
+}
+
+/* Mirrors Sidebar.module.css's own breakpoint, where the sidebar sets
+   itself to display: none -- collapse the now-empty 260px track so the
+   chat column reclaims the full width instead of leaving a blank gutter. */
+@media (max-width: 720px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.page {
+  grid-row: 2;
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--background);
+}
+
+@media (max-width: 720px) {
+  .page {
+    grid-column: 1;
+  }
+}
+
+.headerBar {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--header-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Navbar row. The header spans the full shell
+   width (see .headerBar's grid-column: 1 / -1), so — unlike .greeting /
+   .composerDock, which live inside the centered chat column and use a
+   shared max-width — the title and the right-side cluster are pinned to
+   the navbar's own left/right edges via `justify-content: space-between`,
+   not to a centered 46rem block. The left padding matches Sidebar's own
+   inner padding (see Sidebar.module.css .sidebar, padding: 0.75rem) so the
+   title's left edge lines up with the sidebar content below it; the right
+   padding matches the chat column's own edge padding (.greeting /
+   .composerDock use 1.25rem) so the status cluster lines up with the
+   composer's right edge. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.85rem 1.25rem 0.85rem 0.75rem;
+}
+
+/* Right-side cluster: live stats readout + the dot/status group, vertically
+   centered together in the navbar. Keeping .status as its own nested flex
+   row (unchanged from before) preserves the dot/text alignment fix; this
+   wrapper only adds the stats readout as a sibling in front of it. */
+.navRight {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+/* White-box stat readout: "{in} → {out} (cached) · tok/s" for the
+   current/last response. Monospace so the digits don't jitter the layout
+   as they tick up during streaming; muted + small so it reads as ambient
+   telemetry, not a headline number. */
+.stats {
+  display: inline-block;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+/* Dot + status text alignment. Root cause of the recurring
+   "text sits lower than the dot" bug: the dot's box is fixed-height (see
+   ConnectionDot.module.css), but the text is an inline run whose line box
+   is sized from font metrics, not the dot's height -- if the container
+   isn't a flex row with align-items: center, the two end up aligned on the
+   text baseline instead (the browser's default for inline content), which
+   sits well below the dot's vertical center. `inline-flex` + `align-items:
+   center` centers both items' margin boxes on the same line, and
+   `line-height: 1` on the text keeps its line box tight to the font's
+   em-square so that center doesn't drift from the visible glyphs. No
+   vertical-align, no position:relative "top" nudges anywhere in this rule.
+*/
+.status {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  gap: 0.45rem;
+}
+
+.statusText {
+  display: inline-block;
+  font-size: 0.72rem;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+/* .main spans everything below the header. It hosts two flex children whose
+   flex-grow values are cross-animated: in the empty state .stage grows to
+   fill the whole area (centering the greeting + composer as one group); once
+   there are messages, .scroll grows instead and .stage collapses to its
+   natural content height, which pins the composer at the bottom -- its
+   normal, permanent resting spot. Because .stage's justify-content stays
+   "center" in both states, and a content-height box centers its content
+   indistinguishably from flex-end, there's no jump when the swap happens --
+   only a smooth flex-grow slide. */
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Non-scrolling wrapper around .scroll (Timeline fix): the flex-grow sizing
+   that used to live directly on the scrolling element now lives here, so
+   .scroll itself is just "fill whatever box scrollArea sized". Timeline is
+   rendered as a sibling of .scroll INSIDE this element (not inside .scroll),
+   absolutely positioned against it -- since scrollArea itself never scrolls
+   (only its .scroll child does), the rail's containing block never moves,
+   so the rail stays visually pinned in place while messages scroll beneath
+   it instead of scrolling away with them. */
+.scrollArea {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  flex-shrink: 1;
+  flex-basis: 0%;
+  transition: flex-grow 360ms ease;
+}
+
+.scrollAreaEmpty {
+  flex-grow: 0;
+}
+
+.scroll {
+  min-height: 0;
+  overflow-y: auto;
+  /* NOT scroll-behavior: smooth. The per-token "stick to bottom" follow uses
+     an instant scroll -- if it animated, each token would start a smooth
+     scroll that fights the user the moment they try to drag up, making it
+     feel stuck. Deliberate jumps (the jump-to-bottom button, a timeline
+     tick click) still animate: they pass `behavior: "smooth"` explicitly in
+     JS, which overrides this element's default. */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Floating "jump to bottom" button (stick-to-bottom UX): an
+   absolutely-positioned sibling of .scroll inside .scrollArea, so its
+   containing block is the non-scrolling wrapper -- same trick Timeline
+   uses -- and it stays pinned in place (bottom-center, hovering just above
+   the composer) instead of scrolling away with the messages beneath it.
+   Centered via left: 50% / translateX(-50%) against .scrollArea's full
+   width, which lines it up over the centered 46rem message column (see
+   MessageList.module.css .list) since that column is itself centered
+   within .scrollArea. */
+.jumpButton {
+  position: absolute;
+  left: 50%;
+  bottom: 0.85rem;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--composer-bg-elevated);
+  box-shadow: var(--composer-shadow-elevated);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.jumpButton:hover {
+  background: var(--user-pill);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jumpButton {
+    transition: none;
+  }
+}
+
+.stage {
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex-basis: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.25rem;
+  transition: flex-grow 360ms ease;
+}
+
+.stageEmpty {
+  flex-grow: 1;
+  flex-basis: 0%;
+}
+
+/* Skips the empty->bottom slide on the very first paint (defensive: only
+   matters if the app ever mounts with messages already present). */
+.noAnim {
+  transition: none;
+}
+
+.greeting {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.greetingTitle {
+  font-size: 1.75rem;
+  font-weight: 500;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.greetingSubtitle {
+  font-size: 0.9rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.composerDock {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  /* A bit more top padding so the composer sits with a clear gap below the
+     last message / the chat area, rather than hugging it. */
+  padding: 0.85rem 1.25rem 1.25rem;
+}
