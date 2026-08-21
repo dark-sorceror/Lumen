@@ -2,6 +2,7 @@
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import styles from "./Markdown.module.css";
 
 // Streaming cursor sentinel: rendered as an inline code span (see
@@ -53,15 +54,26 @@ type Props = {
 };
 
 // Shared Markdown renderer for both user and assistant message text.
-// GFM (tables/strikethrough/task lists/autolinks) via remark-gfm.
-// Crucially, rehype-raw is NOT registered here, so react-markdown's default
-// behavior still applies: raw HTML in the source is never rendered as HTML
-// (it's escaped to plain text) -- this is what keeps arbitrary user or model
-// text from being able to inject markup/scripts.
+// GFM (tables/strikethrough/task lists/autolinks) via remark-gfm, plus
+// rehype-highlight for fenced-code-block syntax highlighting (see
+// Markdown.module.css for the light/dark token palette). rehype-highlight
+// only walks `<pre><code>` elements it finds in the already-parsed hast tree
+// and *adds* `hljs-*` classNames to the text it finds there -- it never
+// introduces new elements from raw markup and never touches inline `code`
+// (i.e. anything not directly inside a `<pre>`), so it can't affect the
+// cursor glyph handling below. Crucially, rehype-raw is NOT registered here,
+// so react-markdown's default behavior still applies: raw HTML in the
+// source is never rendered as HTML (it's escaped to plain text) -- this is
+// what keeps arbitrary user or model text from being able to inject
+// markup/scripts.
 export default function Markdown({ text, className }: Props) {
   return (
     <div className={`${styles.markdown} ${className ?? ""}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
         {text}
       </ReactMarkdown>
     </div>

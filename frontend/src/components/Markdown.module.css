@@ -117,6 +117,83 @@
   word-break: break-word;
 }
 
+.markdown pre {
+  margin: 0.6em 0;
+  padding: 0.75rem 0.9rem;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+  line-height: 1.55;
+  white-space: pre;
+  color: var(--foreground);
+}
+
+/* Syntax highlighting (rehype-highlight / highlight.js token classes).
+   Hand-written instead of importing one of highlight.js's bundled themes
+   so it stays legible in both light and dark without shipping a palette
+   tuned for only one -- light-mode colors below, dark-mode overrides in
+   the `prefers-color-scheme: dark` block further down (mirrors how
+   globals.css themes the rest of the app). Kept to a handful of muted
+   hues -- comments intentionally reuse --muted-foreground so they sit at
+   the same "de-emphasized text" level as the rest of the UI. */
+.markdown .hljs-keyword,
+.markdown .hljs-selector-tag,
+.markdown .hljs-literal,
+.markdown .hljs-section,
+.markdown .hljs-link {
+  color: #7c3aed;
+}
+
+.markdown .hljs-string,
+.markdown .hljs-regexp,
+.markdown .hljs-addition {
+  color: #15803d;
+}
+
+.markdown .hljs-comment,
+.markdown .hljs-quote,
+.markdown .hljs-deletion {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.markdown .hljs-number,
+.markdown .hljs-symbol,
+.markdown .hljs-bullet {
+  color: #b45309;
+}
+
+.markdown .hljs-title,
+.markdown .hljs-title.function_,
+.markdown .hljs-title.class_,
+.markdown .hljs-type {
+  color: #1d4ed8;
+}
+
+.markdown .hljs-attr,
+.markdown .hljs-attribute,
+.markdown .hljs-name,
+.markdown .hljs-built_in,
+.markdown .hljs-variable.language_ {
+  color: #0f766e;
+}
+
+.markdown .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown .hljs-strong {
+  font-weight: 600;
+}
+
 .markdown table {
   margin: 0.6em 0;
   border-collapse: collapse;
@@ -171,5 +248,47 @@
 @media (prefers-reduced-motion: reduce) {
   .cursor {
     animation: none;
+  }
+}
+
+/* Dark-mode syntax token overrides (see the light-mode .hljs-* rules above,
+   near .markdown pre code) -- same category groupings, brighter/desaturated
+   variants tuned to stay readable on the dark elevated code-block
+   background. .hljs-comment isn't repeated here since it already tracks
+   --muted-foreground, which globals.css re-themes for dark mode. */
+@media (prefers-color-scheme: dark) {
+  .markdown .hljs-keyword,
+  .markdown .hljs-selector-tag,
+  .markdown .hljs-literal,
+  .markdown .hljs-section,
+  .markdown .hljs-link {
+    color: #c4a7ff;
+  }
+
+  .markdown .hljs-string,
+  .markdown .hljs-regexp,
+  .markdown .hljs-addition {
+    color: #8ddb9e;
+  }
+
+  .markdown .hljs-number,
+  .markdown .hljs-symbol,
+  .markdown .hljs-bullet {
+    color: #f0b975;
+  }
+
+  .markdown .hljs-title,
+  .markdown .hljs-title.function_,
+  .markdown .hljs-title.class_,
+  .markdown .hljs-type {
+    color: #8ab4f8;
+  }
+
+  .markdown .hljs-attr,
+  .markdown .hljs-attribute,
+  .markdown .hljs-name,
+  .markdown .hljs-built_in,
+  .markdown .hljs-variable.language_ {
+    color: #5eead4;
   }
 }
