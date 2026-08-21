@@ -10,4 +10,17 @@ Qwen3 on Apple Silicon via MLX.
 - changing the past isn't free → attention caches cut cleanly, recurrent state doesn't → checkpoint and replay
 - internals stream out live → per-token probabilities, attention, activations → not rebuilt after
 
+## Project structure
+
+- `workbench/` — Python backend
+  - `engine/` — hand-owned MLX generation loop, KV-cache reuse, control queue, taps
+  - `context/` — event-sourced, editable context (typed segments) and token assembly
+  - `server/` — FastAPI WebSocket app, wire protocol, chat-template framing
+  - `attachments/` — text/PDF/OCR/VLM extraction pipeline and transient store
+  - `tools/` — safe tool registry (calculator, current-time, context search)
+  - `static/` — minimal fallback client
+- `frontend/` — Next.js app (chat UI, context inspector, media viewer)
+- `tests/` — pytest suite
+- `experiments/` — engine ↔ stock mlx-lm parity harness
+
 https://arxiv.org/pdf/2607.24653
