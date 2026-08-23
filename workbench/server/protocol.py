@@ -67,11 +67,18 @@ def gen_stats_msg(prompt_tokens: int, cached_tokens: int) -> dict:
     }
 
 
-def token_msg(e: TokenEvent) -> dict:
+def token_msg(e: TokenEvent, text: str | None = None) -> dict:
+    """`text` overrides `e.text` when given (additive, v1.2): the
+    tool-calling round loop in app.py suppresses raw `<tool_call>...
+    </tool_call>` tags from the token stream by forwarding a filtered
+    substring of the event's text rather than the text itself -- see
+    run_generation's tag-suppression state machine. Every existing caller
+    (the non-tool-calling path, and every pre-tool-calling test) omits `text` and
+    gets exactly the old behavior."""
     return {
         "type": "token",
         "token_id": e.token_id,
-        "text": e.text,
+        "text": e.text if text is None else text,
         "top_logprobs": {str(k): v for k, v in e.top_logprobs.items()},
     }
 
@@ -81,6 +88,24 @@ def done_msg(finish_reason: str) -> dict:
     additively (v1.2), "tool_limit" -- emitted when the agentic tool loop in
     app.py hits MAX_TOOL_ROUNDS while the model still wants to call a tool."""
     return {"type": "done", "finish_reason": finish_reason}
+
+
+def tool_call_msg(call_id: str, name: str, arguments: dict) -> dict:
+    """v1.2: emitted once a round's `<tool_call>{...}</tool_call>` block has
+    been parsed, before the tool executes -- lets the client render a
+    structured "calling tool X" step instead of the raw tags (which are
+    suppressed from the `token` stream; see token_msg)."""
+    return {"type": "tool_call", "call_id": call_id, "name": name, "arguments": arguments}
+
+
+def tool_result_msg(call_id: str, name: str, result: str, error: bool) -> dict:
+    """v1.2: emitted once the tool named in a prior tool_call_msg has run.
+    `error=True` means `result` is a human-readable failure message (unknown
+    tool, malformed arguments, or a caught exception/timeout) rather than the
+    tool's real return value -- the model still gets it fed back as the next
+    round's tool-response context, so it can self-correct."""
+    return {"type": "tool_result", "call_id": call_id, "name": name,
+            "result": result, "error": error}
 
 
 def error_msg(message: str) -> dict:

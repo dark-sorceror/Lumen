@@ -1,3 +1,4 @@
+from workbench.server.framing import frame_tool_result
 import pytest
 
 from workbench.context.manager import ContextManager
@@ -185,3 +186,33 @@ def test_framed_2turn_conversation_matches_real_chat_template():
     expected = tokenizer.apply_chat_template(
         [msg1, reply1, msg2], tokenize=True, add_generation_prompt=True)
     assert tc.tokens == expected
+
+
+def test_frame_tool_result_wraps_content_in_scratch_framing(fake_tokenizer):
+    prefix, content, suffix = frame_tool_result(fake_tokenizer, "calculator", "4")
+    assert prefix.kind == SegmentKind.SCRATCH
+    assert suffix.kind == SegmentKind.SCRATCH
+    assert content.kind == SegmentKind.TOOL_RESULT
+    assert content.text == "4"
+    ids = {prefix.id, content.id, suffix.id}
+    assert len(ids) == 3
+
+
+def test_frame_tool_result_provenance_and_editability(fake_tokenizer):
+    _, content, _ = frame_tool_result(fake_tokenizer, "calculator", "4")
+    assert content.provenance == "tool:calculator"
+    assert content.editable_by == Editor.USER
+    prefix, _, suffix = frame_tool_result(fake_tokenizer, "calculator", "4")
+    assert prefix.editable_by == Editor.NONE
+    assert suffix.editable_by == Editor.NONE
+    assert prefix.provenance == "framing" and suffix.provenance == "framing"
+
+
+def test_frame_tool_result_uses_distinct_role_framing_from_user(fake_tokenizer):
+    """The "tool" role's framing must be derived independently of "user"'s
+    (distinct dict entry / cache key), even though real Qwen3 renders a tool
+    response wrapped in a `user` turn -- confirming frame_tool_result doesn't
+    accidentally alias the "user" cache slot."""
+    user_prefix, _, user_suffix = frame_message(fake_tokenizer, "user", "hi")
+    tool_prefix, _, tool_suffix = frame_tool_result(fake_tokenizer, "calculator", "4")
+    assert (tool_prefix.text, tool_suffix.text) != (user_prefix.text, user_suffix.text)

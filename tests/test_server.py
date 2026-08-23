@@ -1,3 +1,5 @@
+from workbench.server.app import MAX_TOOL_ROUNDS
+from workbench.tools import ToolRegistry, default_registry
 from workbench.server.app import _attachment_type_allowed, _effective_mime, _sniff_ok
 import threading
 import time
@@ -93,8 +95,9 @@ class LiveEngine:
         self.trims.append(n)
 
 
-def make_client(engine):
-    return TestClient(create_app(engine=engine, tokenizer=FakeTokenizer()))
+def make_client(engine, tool_registry=None):
+    return TestClient(create_app(engine=engine, tokenizer=FakeTokenizer(),
+                                 tool_registry=tool_registry))
 
 
 def drain_until(ws, msg_type):
@@ -1038,3 +1041,432 @@ def test_attachment_multiple_chunks_all_appended_in_order():
     assert doc_chunks[1]["text"].endswith("22")
     from workbench.server.app import _ATTACHMENT_PREFACE
     assert all(c["text"].startswith(_ATTACHMENT_PREFACE) for c in doc_chunks)
+
+
+class ToolCallOnceEngine:
+    """Session-API fake: on the FIRST generate_with_cache call, emits a
+    single event whose text is a complete Hermes-style `<tool_call>...
+    </tool_call>` block (calculator(2+2)) terminated by the model's own
+    finish_reason="stop" (self-termination -- no
+    watchdog abort should be needed). On the SECOND call (the round after
+    the tool result is fed back), emits a plain final answer with no tool
+    call."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        if self.calls == 1:
+            text = ('<tool_call>\n'
+                    '{"name": "calculator", "arguments": {"expression": "2+2"}}\n'
+                    '</tool_call>')
+            yield TokenEvent(500, text, finish_reason="stop")
+        else:
+            yield TokenEvent(600, "the answer is 4", finish_reason="stop")
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+class AlwaysToolCallEngine:
+    """Every generate_with_cache call emits a (self-terminating) tool call --
+    exercises the MAX_TOOL_ROUNDS cap."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        text = ('<tool_call>\n'
+                '{"name": "calculator", "arguments": {"expression": "1+1"}}\n'
+                '</tool_call>')
+        yield TokenEvent(500, text, finish_reason="stop")
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+class MalformedToolCallEngine:
+    """FIRST call emits a `<tool_call>` block with a body that isn't valid
+    JSON; SECOND call emits a plain final answer -- exercises the
+    "malformed tool_call never crashes, synthesizes an error result instead"
+    path."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        if self.calls == 1:
+            yield TokenEvent(500, "<tool_call>\nnot valid json\n</tool_call>",
+                             finish_reason="stop")
+        else:
+            yield TokenEvent(600, "sorry, let me try again", finish_reason="stop")
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+@pytest.mark.timeout(10)
+def test_tools_disabled_by_default_preserves_raw_text_in_token_stream():
+    """Regression guard for the "tools OFF by default" design decision:
+    create_app(engine, tokenizer) with no tool_registry must NEVER parse or
+    suppress `<tool_call>` text -- even if a fake engine's output happens to
+    contain the literal tag -- so the pre-tool-calling behavior is provably
+    unaffected for callers that don't opt in."""
+    engine = ToolCallOnceEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:  # tool_registry=None
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+    types = [m["type"] for m in msgs]
+    assert "tool_call" not in types and "tool_result" not in types
+    token_texts = [m["text"] for m in msgs if m["type"] == "token"]
+    assert any("<tool_call>" in t for t in token_texts)
+    assert msgs[-1] == {"type": "done", "finish_reason": "stop"}
+    # No second round was triggered -- exactly one generate_with_cache call.
+    assert engine.calls == 1
+
+
+@pytest.mark.timeout(10)
+def test_tool_call_round_trip_and_tag_suppression():
+    engine = ToolCallOnceEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+
+    types = [m["type"] for m in msgs]
+    assert "tool_call" in types
+    assert "tool_result" in types
+    assert types.index("tool_call") < types.index("tool_result")
+
+    tool_call = next(m for m in msgs if m["type"] == "tool_call")
+    assert tool_call["name"] == "calculator"
+    assert tool_call["arguments"] == {"expression": "2+2"}
+    assert isinstance(tool_call["call_id"], str) and tool_call["call_id"]
+
+    tool_result = next(m for m in msgs if m["type"] == "tool_result")
+    assert tool_result["call_id"] == tool_call["call_id"]
+    assert tool_result["name"] == "calculator"
+    assert tool_result["result"] == "4"
+    assert tool_result["error"] is False
+
+    # The raw <tool_call>...</tool_call> tags must never leak into any
+    # `token` event -- the client only ever sees the structured events.
+    token_texts = [m["text"] for m in msgs if m["type"] == "token"]
+    assert not any("<tool_call>" in t or "</tool_call>" in t for t in token_texts)
+    assert "the answer is 4" in "".join(token_texts)
+
+    assert msgs[-1] == {"type": "done", "finish_reason": "stop"}
+    # Two rounds -> two generate_with_cache calls (tool-call round, then the
+    # final-answer round after the tool result was fed back).
+    assert engine.calls == 2
+
+
+@pytest.mark.timeout(10)
+def test_tool_result_segment_appears_in_context_with_tool_provenance():
+    engine = ToolCallOnceEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        _drain_turn(ws)
+        ws.send_json({"type": "get_context"})
+        ctx_msg = ws.receive_json()
+
+    assert ctx_msg["type"] == "context"
+    kinds = [s["kind"] for s in ctx_msg["segments"]]
+    assert "tool_result" in kinds
+    tool_result_seg = next(s for s in ctx_msg["segments"] if s["kind"] == "tool_result")
+    assert tool_result_seg["text"] == "4"
+    assert tool_result_seg["provenance"] == "tool:calculator"
+    assert tool_result_seg["editable_by"] == "user"
+
+
+@pytest.mark.timeout(10)
+def test_tools_prompt_injected_once_as_system_segment():
+    """Session-start tool-definitions prompt: the first
+    user_message on a tools-enabled connection prepends a SYSTEM segment
+    rendering the <tools>...</tools> block; a second user_message on the
+    SAME connection must not inject it again."""
+    engine = ToolCallOnceEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        _drain_turn(ws)
+        ws.send_json({"type": "get_context"})
+        ctx_msg = ws.receive_json()
+
+    segments = ctx_msg["segments"]
+    system_segments = [s for s in segments if s["kind"] == "system"]
+    assert len(system_segments) == 1
+    sys_seg = system_segments[0]
+    assert "<tools>" in sys_seg["text"] and "</tools>" in sys_seg["text"]
+    assert "calculator" in sys_seg["text"]
+    assert "<tool_call>" in sys_seg["text"]
+    # The system segment is the FIRST content segment (before the user turn).
+    assert segments[0]["kind"] == "scratch"
+    assert segments[1]["kind"] == "system"
+
+
+@pytest.mark.timeout(10)
+def test_malformed_tool_call_json_synthesizes_error_result_not_crash():
+    engine = MalformedToolCallEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+
+    tool_result = next(m for m in msgs if m["type"] == "tool_result")
+    assert tool_result["error"] is True
+    assert tool_result["result"].startswith("error:")
+    assert msgs[-1] == {"type": "done", "finish_reason": "stop"}
+    assert engine.calls == 2
+
+
+@pytest.mark.timeout(15)
+def test_max_tool_rounds_enforced_with_tool_limit_finish_reason():
+    engine = AlwaysToolCallEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+
+    tool_calls = [m for m in msgs if m["type"] == "tool_call"]
+    tool_results = [m for m in msgs if m["type"] == "tool_result"]
+    assert len(tool_calls) == MAX_TOOL_ROUNDS
+    assert len(tool_results) == MAX_TOOL_ROUNDS
+    assert all(r["result"] == "2" for r in tool_results)  # calculator(1+1)
+    assert msgs[-1] == {"type": "done", "finish_reason": "tool_limit"}
+    assert engine.calls == MAX_TOOL_ROUNDS
+
+
+class NonTerminatingToolCallEngine:
+    """FIRST call emits a complete `<tool_call>...</tool_call>` block WITHOUT
+    a finish_reason on that event (the model "forgot" to emit <|im_end|>),
+    then keeps yielding filler tokens, honoring control.checkpoint() like
+    LiveEngine -- exercises the `</tool_call>` watchdog safety net: the server must notice the closing tag mid-stream and post
+    Control.ABORT itself, rather than relying on the model to self-terminate
+    (contrast with ToolCallOnceEngine, which self-terminates via EOS)."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        if self.calls == 1:
+            yield TokenEvent(
+                500,
+                '<tool_call>\n{"name": "calculator", "arguments": {"expression": "3+3"}}\n'
+                '</tool_call>')  # no finish_reason: model didn't self-terminate
+            i = 0
+            while True:
+                if control is not None and control.checkpoint() == "abort":
+                    yield TokenEvent(-1, "", finish_reason="aborted")
+                    return
+                yield TokenEvent(700 + i, "filler")
+                i += 1
+        else:
+            yield TokenEvent(600, "6", finish_reason="stop")
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+@pytest.mark.timeout(10)
+def test_watchdog_aborts_generation_that_does_not_self_terminate():
+    engine = NonTerminatingToolCallEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+
+    tool_result = next(m for m in msgs if m["type"] == "tool_result")
+    assert tool_result["result"] == "6"  # calculator(3+3)
+    token_texts = [m["text"] for m in msgs if m["type"] == "token"]
+    assert not any("<tool_call>" in t or "</tool_call>" in t for t in token_texts)
+    assert msgs[-1] == {"type": "done", "finish_reason": "stop"}
+    # The watchdog stopped round 1 (whatever filler leaked through before the
+    # abort landed is irrelevant); exactly one more round produced the answer.
+    assert engine.calls == 2
+
+
+class UserAbortMidToolCallEngine:
+    """Round 1 streams a `<tool_call>` body WITHOUT its closing tag (so the
+    watchdog cannot fire yet -- there's no `</tool_call>` to see), then
+    streams empty filler honoring `control.checkpoint()`. When a USER abort
+    lands, it emits the closing tag TOGETHER with finish_reason="aborted" --
+    modeling the race where a user abort arrives just as the model
+    completes its tool call, on the round's FINAL event (which the watchdog's
+    `finish_reason is None` guard never treats as its own harvest). So
+    `parts` ends up holding a COMPLETE tool_call, finish=="aborted", yet the
+    watchdog never posted ABORT -> the loop must recognize a genuine user
+    abort and stop, not execute the tool and start another round."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        # Open the tool_call but do NOT close it yet (no watchdog trigger).
+        yield TokenEvent(
+            500,
+            '<tool_call>\n{"name": "calculator", "arguments": {"expression": "2+2"}}')
+        while True:
+            if control is not None and control.checkpoint() == "abort":
+                # User abort: close the tag on the SAME final event.
+                yield TokenEvent(-1, "\n</tool_call>", finish_reason="aborted")
+                return
+            yield TokenEvent(700, "")  # empty filler (suppressed inside tag)
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+@pytest.mark.timeout(10)
+def test_user_abort_during_tools_turn_stops_and_does_not_execute():
+    """A genuine user abort whose partial text already contains
+    a complete `<tool_call>` must STOP the turn (done finish_reason="aborted",
+    matching tools-off abort behavior) -- it must NOT be mistaken for the
+    watchdog's tool-harvest and executed into another round."""
+    engine = UserAbortMidToolCallEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        expect_gen_stats(ws)
+        ws.send_json({"type": "abort"})
+        msgs = _drain_turn(ws)
+
+    types = [m["type"] for m in msgs]
+    assert "tool_call" not in types, msgs
+    assert "tool_result" not in types, msgs
+    assert msgs[-1] == {"type": "done", "finish_reason": "aborted"}
+    # Only one generation happened -- no second (tool-result) round.
+    assert engine.calls == 1
+
+
+class WatchdogLeakEngine:
+    """Round 1 emits a complete tool_call whose closing `</tool_call>` lands on
+    a NON-final event (so the watchdog posts Control.ABORT), then a trailing
+    FINAL event carries finish_reason="stop" WITHOUT the engine ever
+    checkpointing again -- so the watchdog's ABORT is left UNCONSUMED in the
+    control queue. Round 2 honors `control.checkpoint()`; if the stale ABORT
+    leaks in, round 2 aborts immediately instead of answering. The drain must
+    drain that stale watchdog ABORT at the round boundary."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        if self.calls == 1:
+            # Close tag on a NON-final event -> watchdog fires + posts ABORT.
+            yield TokenEvent(
+                500,
+                '<tool_call>\n{"name": "calculator", "arguments": {"expression": "2+2"}}\n'
+                '</tool_call>')
+            # Final event; engine never checkpoints again, so the ABORT the
+            # watchdog just posted is NOT consumed -- it lingers in the queue.
+            yield TokenEvent(501, "", finish_reason="stop")
+        else:
+            # Round 2 honors control: a leaked stale ABORT would abort here.
+            if control is not None and control.checkpoint() == "abort":
+                yield TokenEvent(-1, "", finish_reason="aborted")
+                return
+            yield TokenEvent(600, "the answer is 4", finish_reason="stop")
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+@pytest.mark.timeout(10)
+def test_stale_watchdog_abort_does_not_leak_into_next_round():
+    """A watchdog ABORT the engine self-terminated past without
+    consuming must be drained at the round boundary, so it does not wrongly
+    abort the NEXT round. Round 2 must complete a normal answer."""
+    engine = WatchdogLeakEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        msgs = _drain_turn(ws)
+
+    tool_result = next(m for m in msgs if m["type"] == "tool_result")
+    assert tool_result["result"] == "4"
+    token_texts = [m["text"] for m in msgs if m["type"] == "token"]
+    assert "the answer is 4" in "".join(token_texts), msgs
+    assert msgs[-1] == {"type": "done", "finish_reason": "stop"}, msgs
+    assert engine.calls == 2
+
+
+class ToolThenLiveEngine:
+    """Round 1 self-terminates a `<tool_call>` (watchdog does NOT fire), so the
+    tool runs and round 2 begins. Round 2 streams forever honoring
+    `control.checkpoint()` (LiveEngine-style). A user abort posted between
+    rounds / while the tool is handled must survive into round 2 and stop it
+    -- it must NOT be swallowed by any round-boundary drain."""
+
+    def __init__(self):
+        self.prompts: list[list[int]] = []
+        self.trims: list[int] = []
+        self.calls = 0
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.prompts.append(list(full_tokens))
+        self.calls += 1
+        if self.calls == 1:
+            yield TokenEvent(
+                500,
+                '<tool_call>\n{"name": "calculator", "arguments": {"expression": "2+2"}}\n'
+                '</tool_call>',
+                finish_reason="stop")  # self-terminate: no watchdog
+        else:
+            token_id = 0
+            while True:
+                if control is not None and control.checkpoint() == "abort":
+                    yield TokenEvent(-1, "", finish_reason="aborted")
+                    return
+                yield TokenEvent(700 + token_id, "7")
+                token_id += 1
+
+    def trim_to(self, n):
+        self.trims.append(n)
+
+
+@pytest.mark.timeout(10)
+def test_user_abort_during_tool_execution_stops_turn():
+    """The load-bearing case: a user abort
+    posted while a tool is executing / between rounds must STILL stop the turn
+    -- a per-round drain must not swallow it. Round 2 (live) must observe the
+    abort and finish `aborted`."""
+    engine = ToolThenLiveEngine()
+    with make_client(engine, tool_registry=default_registry()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        # Wait until round 1's tool has executed (tool_result emitted), then
+        # abort -- i.e. between rounds, as the second round is spinning up.
+        msgs = []
+        while True:
+            msg = ws.receive_json()
+            msgs.append(msg)
+            if msg["type"] == "tool_result":
+                break
+        ws.send_json({"type": "abort"})
+        # Round 2 is live; the abort must land and stop it.
+        while True:
+            msg = ws.receive_json()
+            msgs.append(msg)
+            if msg["type"] == "done":
+                break
+
+    assert any(m["type"] == "tool_result" for m in msgs)
+    assert msgs[-1] == {"type": "done", "finish_reason": "aborted"}, msgs
+    assert engine.calls == 2

@@ -1,3 +1,4 @@
+from workbench.server.protocol import tool_call_msg, tool_result_msg
 import pytest
 
 from workbench.context.manager import CacheImpact
@@ -183,3 +184,33 @@ def test_parse_user_message_non_string_items_in_attachment_ids_rejected():
 
 
 # -- v1.1: get_context / preview_edit / apply_edit ---------------------------
+
+
+def test_done_msg_tool_limit_finish_reason():
+    assert done_msg("tool_limit") == {"type": "done", "finish_reason": "tool_limit"}
+
+
+def test_token_msg_text_override_suppresses_raw_text():
+    e = TokenEvent(token_id=9, text="<tool_call>{...}</tool_call>",
+                   top_logprobs={1: -0.5})
+    msg = token_msg(e, text="")
+    assert msg == {"type": "token", "token_id": 9, "text": "",
+                   "top_logprobs": {"1": -0.5}}
+
+
+def test_tool_call_msg():
+    msg = tool_call_msg("tc_0", "calculator", {"expression": "2+2"})
+    assert msg == {"type": "tool_call", "call_id": "tc_0", "name": "calculator",
+                   "arguments": {"expression": "2+2"}}
+
+
+def test_tool_result_msg_success():
+    msg = tool_result_msg("tc_0", "calculator", "4", error=False)
+    assert msg == {"type": "tool_result", "call_id": "tc_0", "name": "calculator",
+                   "result": "4", "error": False}
+
+
+def test_tool_result_msg_error():
+    msg = tool_result_msg("tc_0", "calculator", "error: bad expression", error=True)
+    assert msg["error"] is True
+    assert msg["result"] == "error: bad expression"
