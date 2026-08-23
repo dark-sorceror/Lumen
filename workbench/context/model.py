@@ -14,6 +14,13 @@ class SegmentKind(str, Enum):
     THOUGHT = "thought"
     DOC_CHUNK = "doc_chunk"
     SCRATCH = "scratch"
+    # Tool calling: a tool's return string, framed with the
+    # tokenizer's <tool_response> wrapper (see server/framing.py's
+    # frame_tool_result). Distinct from DOC_CHUNK (user-attached reference
+    # data) and SCRATCH (framing-only, editable_by=NONE) -- a tool result is
+    # real content the user may want to inspect/edit, and the Inspector can
+    # badge it distinctly. provenance is f"tool:{name}"; editable_by=USER.
+    TOOL_RESULT = "tool_result"
 
 
 class Editor(str, Enum):

@@ -92,6 +92,36 @@ def frame_message(tokenizer, role: str, text: str) -> list[Segment]:
     ]
 
 
+def frame_tool_result(tokenizer, name: str, result_text: str) -> list[Segment]:
+    """Returns [prefix SCRATCH, content TOOL_RESULT, suffix SCRATCH] segments
+    for a tool's return value, mirroring frame_message() but for the
+    Hermes/Qwen3 tool-response wrapper (role "tool" -> rendered as a `user`
+    turn containing `<tool_response>...</tool_response>`). The prefix/suffix text is derived the same way frame_message
+    derives its role framing: render apply_chat_template for a single
+    placeholder {"role": "tool", "content": PLACEHOLDER} message and diff
+    against the placeholder -- reusing `_framing_for_role`'s cache (keyed by
+    (tokenizer, "tool"), distinct from the "user"/"assistant"/"system" role
+    entries in _ROLE_KIND/_ROLE_PROVENANCE, which frame_message uses).
+
+    Unlike frame_message, the content segment's provenance is NOT a fixed
+    per-role value -- it's f"tool:{name}" (so the Inspector can badge which
+    tool produced it), and editable_by=USER (a tool result is real content,
+    not framing scaffolding). Both are appended by the server with the
+    privileged actor="server" (see app.py's _append_tool_result_segments),
+    which is exempt from the provenance==actor gate in ContextObject.apply,
+    so a provenance of "tool:calculator" (neither "server" nor "user") is
+    legitimate."""
+    prefix_text, suffix_text = _framing_for_role(tokenizer, "tool")
+    return [
+        Segment(id=uuid.uuid4().hex, kind=SegmentKind.SCRATCH, text=prefix_text,
+               editable_by=Editor.NONE, provenance="framing"),
+        Segment(id=uuid.uuid4().hex, kind=SegmentKind.TOOL_RESULT, text=result_text,
+               editable_by=Editor.USER, provenance=f"tool:{name}"),
+        Segment(id=uuid.uuid4().hex, kind=SegmentKind.SCRATCH, text=suffix_text,
+               editable_by=Editor.NONE, provenance="framing"),
+    ]
+
+
 def generation_prompt_text(tokenizer) -> str:
     """The literal text the chat template appends when `add_generation_prompt=
     True` (e.g. the assistant turn's opening header) -- derived by diffing the
