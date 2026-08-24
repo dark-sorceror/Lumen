@@ -5,6 +5,7 @@ import { useState } from "react";
 import type {
   ChatMessage as ChatMessageType,
   ProcessItem,
+  ToolStep,
 } from "@/hooks/useChatSocket";
 import Markdown, { withCursor } from "./Markdown";
 import MessageAttachments from "./MessageAttachments";
@@ -87,6 +88,68 @@ function excerptLine(paragraph: string): string {
   return `${sentence.slice(0, EXCERPT_MAX - 1).trimEnd()}…`;
 }
 
+const ARGS_MAX = 60;
+const RESULT_MAX = 80;
+
+// Compact, readable rendering of a tool call's arguments for the chip
+// label -- e.g. `calculator("2+2")` or `search_context("query", 3)`. A
+// single-argument call drops the key entirely (it's almost always
+// self-evident from the tool name); multi-argument calls keep `key: value`
+// pairs so each value stays attributable. The full JSON is always available
+// via the chip's `title` tooltip, so truncation/key-dropping here loses
+// nothing irrecoverably.
+function formatToolArgs(args: Record<string, unknown>): string {
+  const entries = Object.entries(args ?? {});
+  if (entries.length === 0) return "";
+  const parts = entries.map(([key, value]) => {
+    const rendered = typeof value === "string" ? `"${value}"` : JSON.stringify(value);
+    return entries.length === 1 ? rendered : `${key}: ${rendered}`;
+  });
+  const joined = parts.join(", ");
+  return joined.length > ARGS_MAX ? `${joined.slice(0, ARGS_MAX - 1).trimEnd()}…` : joined;
+}
+
+function truncate(text: string, max: number): string {
+  const trimmed = text.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1).trimEnd()}…` : trimmed;
+}
+
+// One white-box tool-call chip: 🔧 name(args) [-> result | pending dot].
+// Rendered identically whether it's sitting in the live collapsed preview
+// or inline among the expanded reasoning stages (see the two call sites
+// below) -- the process reads the same either way.
+function ToolStepChip({ step }: { step: ToolStep }) {
+  const fullArgs = JSON.stringify(step.arguments);
+  return (
+    <span
+      className={`${styles.toolChip} ${step.status === "error" ? styles.toolChipError : ""}`}
+      title={`${step.name}\narguments: ${fullArgs}${
+        step.result != null ? `\nresult: ${step.result}` : ""
+      }`}
+    >
+      <span className={styles.toolChipIcon} aria-hidden="true">
+        🔧
+      </span>
+      {/* Only the args ellipsis-truncate; the tool name and the enclosing
+          parens always stay visible, so a call never renders as a
+          dangling "name(...k:…" with the ")" clipped off. */}
+      <span className={styles.toolChipLabel}>
+        {step.name}(<span className={styles.toolChipArgs}>{formatToolArgs(step.arguments)}</span>)
+      </span>
+      {step.status === "pending" ? (
+        <span className={styles.toolChipPending} role="status" aria-label={`running ${step.name}`}>
+          <span className={styles.toolChipDot} aria-hidden="true" />
+          running…
+        </span>
+      ) : (
+        <span className={styles.toolChipResult}>
+          <span aria-hidden="true">→</span> {truncate(step.result ?? "", RESULT_MAX)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // Expanded-view renderer: walks `process` IN ORDER and emits reasoning
 // stages exactly as they arrived.
 function renderProcess(process: ProcessItem[]): ReactNode[] {
@@ -112,10 +175,13 @@ export default function ChatMessage({ message, isStreaming }: Props) {
   // type). The Thoughts toggle appears whenever there's ANY process item.
   const process = isUser ? [] : message.process;
   const hasProcess = process.length > 0;
+  const toolItems = process.filter((p): p is Extract<ProcessItem, { kind: "tool" }> => p.kind === "tool");
+  const hasSteps = toolItems.length > 0;
   const lastThinkingItem = [...process]
     .reverse()
     .find((p): p is Extract<ProcessItem, { kind: "thinking" }> => p.kind === "thinking");
   const lastThinkingStages = lastThinkingItem ? splitStages(lastThinkingItem.text) : [];
+  const showToolLimitNote = !isUser && message.finishReason === "tool_limit";
   // The streaming cursor lives with whatever is actively being written. While
   // the model is still THINKING the answer is empty, so the cursor belongs at
   // the end of the live thinking line -- not on the empty answer line below
@@ -205,7 +271,21 @@ export default function ChatMessage({ message, isStreaming }: Props) {
                     )}
                   </div>
                 )
-              ) : null}
+              ) : (
+                // Collapsed + done (a past turn): the tool chips are the key
+                // white-box signal, so they stay visible collapsed -- but no
+                // reasoning text (that's behind the expand toggle).
+                hasSteps && (
+                  <div className={styles.toolChips}>
+                    {toolItems.map((item) => (
+                      <ToolStepChip key={item.step.callId} step={item.step} />
+                    ))}
+                  </div>
+                )
+              )}
+              {showToolLimitNote && (
+                <div className={styles.toolLimitNote}>Stopped after 5 tool rounds</div>
+              )}
             </button>
           )}
           <div className={styles.text}>
