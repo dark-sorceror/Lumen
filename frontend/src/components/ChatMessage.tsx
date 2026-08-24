@@ -150,8 +150,54 @@ function ToolStepChip({ step }: { step: ToolStep }) {
   );
 }
 
+// Pretty-prints a tool result for the JSON box: `step.result` is a raw
+// string that may itself be a JSON payload (most tool results are) or plain
+// text -- pretty-print when it parses as JSON, otherwise show it verbatim.
+function formatToolResult(result: string): string {
+  try {
+    return JSON.stringify(JSON.parse(result), null, 2);
+  } catch {
+    return result;
+  }
+}
+
+// Streaming-only compact disclosure: shows a tool call's full input/output as
+// JSON while it's the live focus of the collapsed preview (see `showToolBox`
+// in the component below). A quieter, more detailed sibling of ToolStepChip
+// -- that chip stays the collapsed/expanded summary everywhere else; this
+// box only appears for the ONE tool call currently in flight or just
+// resolved, right before the model either resumes thinking or answers.
+function ToolJsonBox({ step }: { step: ToolStep }) {
+  return (
+    <div className={styles.toolJsonBox}>
+      <div className={styles.toolJsonHeader}>
+        <span className={styles.toolChipIcon} aria-hidden="true">
+          🔧
+        </span>
+        <span className={styles.toolJsonName}>{step.name}</span>
+        {step.status === "pending" && (
+          <span className={styles.toolChipPending} role="status" aria-label={`running ${step.name}`}>
+            <span className={styles.toolChipDot} aria-hidden="true" />
+            running…
+          </span>
+        )}
+      </div>
+      <pre className={styles.toolJsonBlock}>{JSON.stringify(step.arguments, null, 2)}</pre>
+      {step.status !== "pending" && (
+        <pre
+          className={`${styles.toolJsonBlock} ${step.status === "error" ? styles.toolChipError : ""}`}
+        >
+          {formatToolResult(step.result ?? "")}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 // Expanded-view renderer: walks `process` IN ORDER and emits reasoning
-// stages exactly as they arrived.
+// stages and tool chips interleaved exactly as they arrived -- thinking ->
+// 🔧 tool -> thinking -> ... -> (answer, rendered separately below). This is
+// what replaces the old "all thoughts, then all chips" layout.
 function renderProcess(process: ProcessItem[]): ReactNode[] {
   const nodes: ReactNode[] = [];
   process.forEach((item, i) => {
@@ -163,6 +209,12 @@ function renderProcess(process: ProcessItem[]): ReactNode[] {
           </p>,
         );
       });
+    } else {
+      nodes.push(
+        <div key={`tool-${i}`} className={styles.toolChips}>
+          <ToolStepChip step={item.step} />
+        </div>,
+      );
     }
   });
   return nodes;
@@ -177,10 +229,15 @@ export default function ChatMessage({ message, isStreaming }: Props) {
   const hasProcess = process.length > 0;
   const toolItems = process.filter((p): p is Extract<ProcessItem, { kind: "tool" }> => p.kind === "tool");
   const hasSteps = toolItems.length > 0;
+  const lastItem = process[process.length - 1];
   const lastThinkingItem = [...process]
     .reverse()
     .find((p): p is Extract<ProcessItem, { kind: "thinking" }> => p.kind === "thinking");
   const lastThinkingStages = lastThinkingItem ? splitStages(lastThinkingItem.text) : [];
+  // Tool JSON box condition: the trailing process state IS a tool call that
+  // hasn't been superseded by new thinking yet -- i.e. the LAST item is a
+  // `tool`. Streaming-only: past turns show the tool chip list instead.
+  const showToolBox = isStreaming && lastItem?.kind === "tool";
   const showToolLimitNote = !isUser && message.finishReason === "tool_limit";
   // The streaming cursor lives with whatever is actively being written. While
   // the model is still THINKING the answer is empty, so the cursor belongs at
@@ -189,7 +246,7 @@ export default function ChatMessage({ message, isStreaming }: Props) {
   const answerStarted = message.text.trim() !== "";
   const displayText =
     isStreaming && answerStarted ? withCursor(message.text) : message.text;
-  const cursorOnThoughts = isStreaming && !answerStarted;
+  const cursorOnThoughts = isStreaming && !answerStarted && !showToolBox;
 
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -257,20 +314,27 @@ export default function ChatMessage({ message, isStreaming }: Props) {
               {expanded ? (
                 <div className={styles.thoughtsFull}>{renderProcess(process)}</div>
               ) : isStreaming ? (
-                lastThinkingStages.length > 0 && (
-                  // Carriage-return semantics: a SINGLE live line showing
-                  // only the most recent reasoning stage (from the last
-                  // thinking item in `process`), overwritten in place as
-                  // each new stage opens -- never a growing vertical stack.
-                  <div className={styles.thoughtsLine}>
-                    <span className={styles.thoughtsLineText}>
-                      {excerptLine(lastThinkingStages[lastThinkingStages.length - 1])}
-                    </span>
-                    {cursorOnThoughts && (
-                      <span className={styles.streamCursor} aria-hidden="true" />
-                    )}
-                  </div>
-                )
+                <>
+                  {lastThinkingStages.length > 0 && (
+                    // Carriage-return semantics: a SINGLE live line showing
+                    // only the most recent reasoning stage (from the last
+                    // thinking item in `process`), overwritten in place as
+                    // each new stage opens -- never a growing vertical stack.
+                    <div className={styles.thoughtsLine}>
+                      <span className={styles.thoughtsLineText}>
+                        {excerptLine(lastThinkingStages[lastThinkingStages.length - 1])}
+                      </span>
+                      {cursorOnThoughts && (
+                        <span className={styles.streamCursor} aria-hidden="true" />
+                      )}
+                    </div>
+                  )}
+                  {/* Tool JSON box: only while a tool call is the trailing,
+                      not-yet-superseded-by-new-thinking process state (see
+                      `showToolBox`). Disappears the instant the model resumes
+                      thinking -- the preview falls back to the line above. */}
+                  {showToolBox && lastItem?.kind === "tool" && <ToolJsonBox step={lastItem.step} />}
+                </>
               ) : (
                 // Collapsed + done (a past turn): the tool chips are the key
                 // white-box signal, so they stay visible collapsed -- but no
