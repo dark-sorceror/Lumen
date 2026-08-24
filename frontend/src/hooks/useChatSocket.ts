@@ -20,14 +20,35 @@ export type MessageAttachment = {
   chars?: number;
 };
 
+// One native tool call + its (eventual) result, in the SAME order the
+// `tool_call`/`tool_result` events arrived over the wire (see `steps` below
+// -- callers never need to re-sort). Starts "pending" on `tool_call` and is
+// resolved in place -- matched by `callId` -- when the paired `tool_result`
+// arrives; a step whose result never arrives (e.g. the turn was aborted or
+// disconnected mid-call) just stays "pending" forever, which the UI renders
+// the same as "still running".
+export type ToolStep = {
+  callId: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: string;
+  error?: boolean;
+  status: "pending" | "done" | "error";
+};
+
 // Ordered timeline of an assistant reply's process, in TRUE arrival order --
-// thinking blocks exactly as the model produced them. Each agentic round
-// contributes at most one `thinking` item (its `<think>...</think>` block). A
+// thinking blocks and tool calls interleaved exactly as the model produced
+// them (reasoning -> tool -> reasoning -> ... -> answer), rather than "all
+// thoughts, then all tool chips" the way the old `thoughts` + `steps` pair
+// rendered. Each agentic round contributes at most one `thinking` item
+// (its `<think>...</think>` block) optionally followed by one `tool` item
+// (the round's tool call, if it made one instead of answering). A
 // `thinking` item carries `live: true` while its round's `<think>` block is
-// still streaming in (see `roundRawRef` below); the flag is cleared once the
-// turn finishes via `done`.
+// still streaming in (see `roundRawRef` below); the flag is cleared once
+// that round ends (a `tool_call` arrives, or the turn finishes via `done`).
 export type ProcessItem =
-  | { kind: "thinking"; text: string; live?: boolean };
+  | { kind: "thinking"; text: string; live?: boolean }
+  | { kind: "tool"; step: ToolStep };
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -68,6 +89,27 @@ type DoneEvent = {
 type ErrorEvent = {
   type: "error";
   message: string;
+};
+
+// v1.2: the model requested a native tool call. `arguments` arrives already
+// parsed (the server decodes the model's JSON before sending), and
+// `call_id` is opaque -- just a matching key for the paired `tool_result`.
+type ToolCallEvent = {
+  type: "tool_call";
+  call_id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+// v1.2: the paired result for a `tool_call` with the same `call_id`. `name`
+// is redundant with the call but included by the server for convenience;
+// not relied on here since the call already carries it.
+type ToolResultEvent = {
+  type: "tool_result";
+  call_id: string;
+  name: string;
+  result: string;
+  error: boolean;
 };
 
 // Sent once, as the FIRST message of a turn (ahead of every
@@ -137,7 +179,9 @@ type ServerEvent =
   | ContextEvent
   | CacheImpactEvent
   | EditRejectedEvent
-  | GenStatsEvent;
+  | GenStatsEvent
+  | ToolCallEvent
+  | ToolResultEvent;
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const OPEN_TAG = "<think>";
@@ -354,6 +398,67 @@ export function useChatSocket() {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "get_context" }));
         }
+      } else if (data.type === "tool_call") {
+        // This round's thinking is complete -- finalize the live thinking
+        // item (or drop it if it never grew any actual text), then append
+        // the new pending tool step, in arrival order relative to everything
+        // before it. Resolved in place by the matching `tool_result` below.
+        // Reset roundRawRef so the NEXT round's tokens are split fresh --
+        // this is the fix for the multi-<think>-block bug: without it, the
+        // next round's raw `<think>...</think>` tag would concatenate onto
+        // this round's already-closed text and leak into the answer.
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (!last || last.role !== "assistant") return prev;
+          const next = prev.slice(0, -1);
+          const process = last.process.slice();
+          const liveIdx = process.findIndex((p) => p.kind === "thinking" && p.live);
+          if (liveIdx !== -1) {
+            const item = process[liveIdx];
+            if (item.kind === "thinking" && item.text.trim() === "") {
+              process.splice(liveIdx, 1);
+            } else if (item.kind === "thinking") {
+              process[liveIdx] = { kind: "thinking", text: item.text };
+            }
+          }
+          const step: ToolStep = {
+            callId: data.call_id,
+            name: data.name,
+            arguments: data.arguments,
+            status: "pending",
+          };
+          process.push({ kind: "tool", step });
+          next.push({ ...last, process });
+          return next;
+        });
+        roundRawRef.current = "";
+      } else if (data.type === "tool_result") {
+        // Resolve the pending tool item with the same call_id. If it's
+        // somehow missing (e.g. the call arrived on a stale/dropped socket),
+        // drop the result rather than fabricate an item for it.
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (!last || last.role !== "assistant") return prev;
+          const idx = last.process.findIndex(
+            (p) => p.kind === "tool" && p.step.callId === data.call_id,
+          );
+          if (idx === -1) return prev;
+          const process = last.process.slice();
+          const item = process[idx];
+          if (item.kind !== "tool") return prev;
+          process[idx] = {
+            kind: "tool",
+            step: {
+              ...item.step,
+              result: data.result,
+              error: data.error,
+              status: data.error ? "error" : "done",
+            },
+          };
+          const next = prev.slice(0, -1);
+          next.push({ ...last, process });
+          return next;
+        });
       } else if (data.type === "error") {
         setStreaming(false);
         roundRawRef.current = "";
