@@ -148,7 +148,11 @@ export default function Composer({
           file,
           kind,
           name: file.name,
-          previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
+          // Blob URL retained for image AND pdf so both can be opened in the
+          // right-side media viewer once sent (see MessageAttachments/
+          // MediaPreview). The draft chip still only renders a thumbnail for
+          // images; a pdf URL here changes nothing visually until it's clicked.
+          previewUrl: kind === "image" || kind === "pdf" ? URL.createObjectURL(file) : undefined,
           uploadState: "uploading",
         };
       });

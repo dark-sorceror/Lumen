@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type {
   ChatMessage as ChatMessageType,
+  MessageAttachment,
   ProcessItem,
   ToolStep,
 } from "@/hooks/useChatSocket";
@@ -14,6 +15,7 @@ import styles from "./ChatMessage.module.css";
 type Props = {
   message: ChatMessageType;
   isStreaming: boolean;
+  onOpenAttachment: (attachment: MessageAttachment) => void;
 };
 
 const EXCERPT_MAX = 90;
@@ -220,7 +222,7 @@ function renderProcess(process: ProcessItem[]): ReactNode[] {
   return nodes;
 }
 
-export default function ChatMessage({ message, isStreaming }: Props) {
+export default function ChatMessage({ message, isStreaming, onOpenAttachment }: Props) {
   const isUser = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   // `process` is always [] on user messages (see useChatSocket's ChatMessage
@@ -275,7 +277,7 @@ export default function ChatMessage({ message, isStreaming }: Props) {
     <div className={`${styles.row} ${isUser ? styles.rowUser : styles.rowAssistant}`}>
      <div className={`${styles.column} ${isUser ? styles.columnUser : styles.columnAssistant}`}>
       {isUser && message.attachments && message.attachments.length > 0 && (
-        <MessageAttachments attachments={message.attachments} />
+        <MessageAttachments attachments={message.attachments} onOpen={onOpenAttachment} />
       )}
       {isUser ? (
         <div className={`${styles.bubble} ${styles.user}`}>

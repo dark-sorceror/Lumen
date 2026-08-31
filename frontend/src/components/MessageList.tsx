@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import type { ChatMessage as ChatMessageType } from "@/hooks/useChatSocket";
+import type { ChatMessage as ChatMessageType, MessageAttachment } from "@/hooks/useChatSocket";
 import ChatMessage from "./ChatMessage";
 import styles from "./MessageList.module.css";
 
@@ -9,6 +9,7 @@ type Props = {
   messages: ChatMessageType[];
   streaming: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
+  onOpenAttachment: (attachment: MessageAttachment) => void;
 };
 
 function lastUserIndex(messages: ChatMessageType[]): number {
@@ -18,7 +19,7 @@ function lastUserIndex(messages: ChatMessageType[]): number {
   return -1;
 }
 
-export default function MessageList({ messages, streaming, scrollRef }: Props) {
+export default function MessageList({ messages, streaming, scrollRef, onOpenAttachment }: Props) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   // Simple stick-to-bottom: keep the newest content in view as the reply
@@ -38,6 +39,7 @@ export default function MessageList({ messages, streaming, scrollRef }: Props) {
           <ChatMessage
             message={message}
             isStreaming={streaming && i === messages.length - 1 && message.role === "assistant"}
+            onOpenAttachment={onOpenAttachment}
             // Auto-minimize a long user message while its reply is generating
             // (see ChatMessage). Only the message whose reply is streaming.
             autoCollapse={streaming && message.role === "user" && i === activeUserIdx}

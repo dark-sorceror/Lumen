@@ -11,13 +11,25 @@
   grid-template-columns: 260px 1fr;
   height: 100dvh;
   width: 100%;
+  /* Animates the chat column narrowing when the media preview opens/closes
+     (the 3rd track appears/disappears -- see .shellPreview). Supported in
+     current Chrome/Safari; degrades to an instant shift elsewhere. */
+  transition: grid-template-columns 240ms ease;
+}
+
+/* Media preview open: a real 3rd column holds MediaPreview, so the
+   chat column (track 2) shrinks and shifts left rather than being covered.
+   minmax keeps the viewer usable without letting it starve the chat. */
+.shellPreview {
+  grid-template-columns: 260px 1fr minmax(320px, 40%);
 }
 
 /* Mirrors Sidebar.module.css's own breakpoint, where the sidebar sets
    itself to display: none -- collapse the now-empty 260px track so the
    chat column reclaims the full width instead of leaving a blank gutter. */
 @media (max-width: 720px) {
-  .shell {
+  .shell,
+  .shellPreview {
     grid-template-columns: 1fr;
   }
 }

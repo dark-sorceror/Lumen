@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useChatSocket } from "@/hooks/useChatSocket";
+import { useChatSocket, type MessageAttachment } from "@/hooks/useChatSocket";
 import ConnectionDot from "@/components/ConnectionDot";
 import MessageList from "@/components/MessageList";
 import Timeline from "@/components/Timeline";
 import Composer from "@/components/Composer";
 import ContextPanel from "@/components/ContextPanel";
+import MediaPreview from "@/components/MediaPreview";
 import Sidebar from "@/components/Sidebar";
 import DisconnectedBanner from "@/components/DisconnectedBanner";
 import styles from "./page.module.css";
@@ -28,6 +29,10 @@ export default function Home() {
   } = useChatSocket();
   const isEmpty = messages.length === 0;
   const [contextOpen, setContextOpen] = useState(false);
+  // Which attachment (if any) is open in the right-side media viewer. Owned
+  // here since opening it re-lays-out the whole shell (adds a 3rd grid
+  // column, shrinking the chat) -- see .shellPreview / MediaPreview.
+  const [preview, setPreview] = useState<MessageAttachment | null>(null);
 
   // Ref to the actual scrolling element (.scroll). Owned here rather than
   // inside MessageList so the "jump to bottom" button -- which lives in
@@ -86,7 +91,7 @@ export default function Home() {
     // to the chat column -- see Sidebar.tsx for the scaffolding
     // note. The header lives as a direct grid child (not nested inside
     // .page) so it can span both columns above the sidebar.
-    <div className={styles.shell}>
+    <div className={`${styles.shell} ${preview ? styles.shellPreview : ""}`}>
       <header className={styles.headerBar}>
         <div className={styles.header}>
           <span className={styles.title}>Lumen</span>
@@ -140,6 +145,7 @@ export default function Home() {
                   messages={messages}
                   streaming={streaming}
                   scrollRef={scrollRef}
+                  onOpenAttachment={setPreview}
                 />
               )}
             </div>
@@ -202,6 +208,7 @@ export default function Home() {
           onApplyEdit={applyEdit}
         />
       </div>
+      {preview && <MediaPreview attachment={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

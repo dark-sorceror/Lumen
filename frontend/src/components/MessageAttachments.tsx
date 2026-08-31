@@ -5,6 +5,10 @@ import styles from "./MessageAttachments.module.css";
 
 type Props = {
   attachments: MessageAttachment[];
+  // Opens the attachment in the right-side media viewer. Only image/pdf
+  // attachments that retained a blob preview URL are actually openable (see
+  // `previewable` below); everything else renders as a non-interactive chip.
+  onOpen: (attachment: MessageAttachment) => void;
 };
 
 // Read-only echo of a sent message's attachments, rendered ABOVE the
@@ -12,27 +16,40 @@ type Props = {
 // AttachmentRow's visual language (image -> small cropped thumbnail, pdf ->
 // red tile + name, file -> grey tile + name) but drops everything that only
 // makes sense for a still-editable draft: no upload-status dot, no remove
-// button.
-export default function MessageAttachments({ attachments }: Props) {
+// button. Image/pdf chips are clickable -> open in the media viewer.
+export default function MessageAttachments({ attachments, onOpen }: Props) {
   if (attachments.length === 0) return null;
 
   return (
     <div className={styles.row}>
       {attachments.map((attachment, i) => {
+        // Only image/pdf with a retained blob URL can be previewed (see
+        // Composer's createObjectURL for image+pdf). A generic file, or a
+        // pdf whose upload never finished (no URL), stays a plain chip.
+        const previewable =
+          !!attachment.previewUrl && (attachment.kind === "image" || attachment.kind === "pdf");
+        const title = previewable ? `${attachment.name} — click to preview` : attachment.name;
+
         if (attachment.kind === "image" && attachment.previewUrl) {
           return (
-            <div key={i} className={styles.imageChip} title={attachment.name}>
+            <button
+              key={i}
+              type="button"
+              className={`${styles.imageChip} ${styles.clickable}`}
+              title={title}
+              onClick={() => onOpen(attachment)}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element -- a local
                   blob: preview URL (its ownership transferred to this message
                   on send, see Composer.handleSend), not a remote/optimizable
                   image, so next/image buys nothing here. */}
               <img src={attachment.previewUrl} alt={attachment.name} className={styles.imageThumb} />
-            </div>
+            </button>
           );
         }
 
-        return (
-          <div key={i} className={styles.fileChip} title={attachment.name}>
+        const inner = (
+          <>
             <div
               className={`${styles.fileTile} ${
                 attachment.kind === "pdf" ? styles.fileTilePdf : styles.fileTileGeneric
@@ -41,6 +58,22 @@ export default function MessageAttachments({ attachments }: Props) {
               {attachment.kind === "pdf" ? <PdfIcon /> : <GenericFileIcon />}
             </div>
             <span className={styles.fileName}>{attachment.name}</span>
+          </>
+        );
+
+        return previewable ? (
+          <button
+            key={i}
+            type="button"
+            className={`${styles.fileChip} ${styles.clickable}`}
+            title={title}
+            onClick={() => onOpen(attachment)}
+          >
+            {inner}
+          </button>
+        ) : (
+          <div key={i} className={styles.fileChip} title={title}>
+            {inner}
           </div>
         );
       })}
