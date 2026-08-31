@@ -210,6 +210,29 @@
    width, which lines it up over the centered 46rem message column (see
    MessageList.module.css .list) since that column is itself centered
    within .scrollArea. */
+/* Bottom fade-out: without it content looked hard-cut by the composer. An
+   absolutely-positioned, non-interactive gradient over the bottom of the
+   (non-scrolling) .scrollArea -- same containing-block trick as .jumpButton
+   -- so it stays pinned above the composer while messages scroll beneath it,
+   fading them into the page background rather than clipping them at a hard
+   edge. Kept modest in height and steep near the top so the last line stays
+   legible when scrolled fully to the bottom. */
+.bottomFade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.75rem;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--background) 60%, transparent) 45%,
+    var(--background)
+  );
+}
+
 .jumpButton {
   position: absolute;
   left: 50%;

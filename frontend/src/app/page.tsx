@@ -162,6 +162,11 @@ export default function Home() {
                 />
               )}
             </div>
+            {/* Soft fade at the bottom of the scroll region so messages
+                dissolve into the background as they approach the composer,
+                instead of being hard-cut by its top edge. Non-interactive
+                overlay; sits below the jump button. */}
+            {!isEmpty && <div className={styles.bottomFade} aria-hidden="true" />}
             {showJumpButton && (
               <button
                 type="button"
