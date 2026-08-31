@@ -32,6 +32,11 @@ export type Attachment = {
    *  context-token contribution once it's shown in a sent message (see
    *  handleSend / ChatMessage's footer). */
   chars?: number;
+  /** Set once "done" -- byte size, effective mime, and the FULL extracted
+   *  text the model sees, surfaced in the media viewer's info bar. */
+  size?: number;
+  mime?: string;
+  text?: string;
   /** Short, human-readable failure reason, shown on hover when
    *  uploadState === "error" (see AttachmentRow). */
   errorMsg?: string;
@@ -87,7 +92,9 @@ export default function Composer({
 
   // Revoke every outstanding image object URL when the composer unmounts,
   // so navigating away mid-draft doesn't leak blob URLs for the rest of the
-  // tab's life.
+  // tab's life. Per-attachment revocation on removal/send is handled where
+  // those happen (removeAttachment, handleSend) -- this is only the
+  // unmount-time backstop for whatever's left.
   useEffect(() => {
     return () => {
       for (const attachment of attachmentsRef.current) {
@@ -98,6 +105,11 @@ export default function Composer({
 
   // Eagerly POSTs a single attachment to the backend the moment it's added
   // (rather than waiting for send -- see the module doc on UploadState).
+  // Updates are always keyed by the local attachment `id` and go through the
+  // functional setState form, so a slow response landing after the
+  // attachment was removed (or after others finished) both (a) never
+  // clobbers a sibling's concurrent update and (b) simply no-ops if `id` is
+  // no longer in the list (removeAttachment already dropped it).
   const uploadAttachment = useCallback((id: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -116,13 +128,27 @@ export default function Composer({
           }
           throw new Error(message);
         }
-        return res.json() as Promise<{ id: string; chars?: number }>;
+        return res.json() as Promise<{
+          id: string;
+          chars?: number;
+          size?: number;
+          mime?: string;
+          text?: string;
+        }>;
       })
       .then((json) => {
         setAttachments((prev) =>
           prev.map((a) =>
             a.id === id
-              ? { ...a, uploadState: "done", serverId: json.id, chars: json.chars }
+              ? {
+                  ...a,
+                  uploadState: "done",
+                  serverId: json.id,
+                  chars: json.chars,
+                  size: json.size,
+                  mime: json.mime,
+                  text: json.text,
+                }
               : a,
           ),
         );
@@ -151,7 +177,12 @@ export default function Composer({
           // Blob URL retained for image AND pdf so both can be opened in the
           // right-side media viewer once sent (see MessageAttachments/
           // MediaPreview). The draft chip still only renders a thumbnail for
-          // images; a pdf URL here changes nothing visually until it's clicked.
+          // images (AttachmentRow/MessageAttachments branch on kind), so a
+          // pdf URL here changes nothing visually until it's clicked. Object-
+          // URL lifecycle (transfer-on-send for "done", revoke otherwise) is
+          // already keyed on `previewUrl` presence, not kind, in handleSend /
+          // removeAttachment / the unmount cleanup -- so pdf URLs are managed
+          // identically to image ones with no further changes.
           previewUrl: kind === "image" || kind === "pdf" ? URL.createObjectURL(file) : undefined,
           uploadState: "uploading",
         };
@@ -184,22 +215,48 @@ export default function Composer({
   };
 
   // Called by MarkdownEditor with the serialized markdown once a send has
-  // actually been committed; the editor has already cleared itself by the
-  // time this fires.
+  // actually been committed (Enter, or the Send button below calling
+  // editorRef.current.submit()); the editor has already cleared itself by
+  // the time this fires. MarkdownEditor now permits an empty-text commit as
+  // long as attachments are present (see its `hasAttachments` prop), so this
+  // can run with `markdown === ""`.
   const handleSend = (markdown: string) => {
+    // Only attachments that finished uploading have a serverId the backend
+    // can resolve; a still-uploading or errored attachment is silently
+    // dropped from this message rather than blocking send -- simplest and
+    // most predictable behavior (see task notes). In the rare case where
+    // every attachment is still mid-upload and the text is also empty,
+    // this sends a text-only, attachment-less message (MarkdownEditor's
+    // `hasAttachments` gate still lets it through since it only checks
+    // attachment *presence*, not upload completion) rather than blocking
+    // the composer on network latency.
     const doneAttachments = attachments.filter(
       (a): a is Attachment & { serverId: string } => a.uploadState === "done" && !!a.serverId,
     );
     const serverIds = doneAttachments.map((a) => a.serverId);
+    // Display copy carried into the chat message itself (see ChatMessage's
+    // attachment strip + footer token estimate) -- built from the same
+    // "done" set as serverIds, so what's shown in the chat always matches
+    // what was actually sent to the backend.
     const attachmentsDisplay: MessageAttachment[] = doneAttachments.map((a) => ({
       name: a.name,
       kind: a.kind,
       previewUrl: a.previewUrl,
       chars: a.chars,
+      size: a.size,
+      mime: a.mime,
+      text: a.text,
     }));
     onSend(markdown, serverIds, attachmentsDisplay.length > 0 ? attachmentsDisplay : undefined);
-    // Only revoke previewUrls of attachments that did NOT make it into the
-    // message; the ones carried in transfer ownership to that message.
+    // Object-URL lifecycle: image previewUrls for attachments carried into
+    // the message above transfer ownership to that message -- it's now
+    // displayed in the chat log for the rest of the session, so revoking
+    // here would blank the thumbnail out from under it. Only revoke
+    // previewUrls of attachments that did NOT make it into the message
+    // (still-uploading/error ones normally never have one anyway, since
+    // only images get a previewUrl and image uploads are typically fast /
+    // don't error); the unmount-cleanup effect above remains the backstop
+    // for whatever's left in `attachments` state after this.
     for (const attachment of attachments) {
       if (attachment.previewUrl && attachment.uploadState !== "done") {
         URL.revokeObjectURL(attachment.previewUrl);
@@ -339,6 +396,14 @@ export default function Composer({
               title={uploadsPending ? "Waiting for attachment upload…" : "Send message"}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                {/* The chevron head packs more stroke length into the top
+                    half than the bare shaft does into the bottom half, so a
+                    path that's geometrically centered in the viewBox (equal
+                    3px margins top/bottom) still reads as sitting slightly
+                    high -- its ink-weighted visual center sits above the
+                    box's true center. Nudging the whole path down by 0.5
+                    units re-balances the visual weight without the
+                    overcorrection a full mathematical fix would introduce. */}
                 <path
                   d="M8 13.5V3.5M8 3.5L3.5 8M8 3.5L12.5 8"
                   fill="none"

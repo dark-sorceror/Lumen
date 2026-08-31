@@ -18,6 +18,14 @@ export type MessageAttachment = {
   // with the same chars/4 heuristic as user-text. Undefined if the upload
   // response didn't carry it.
   chars?: number;
+  // Byte size of the uploaded file (POST /attachments' `size`).
+  size?: number;
+  // Effective (content-sniffed) mime type the backend treated the file as.
+  mime?: string;
+  // Full extracted text the model actually sees for this attachment (the VLM
+  // description / OCR output / document text) -- shown in the media viewer's
+  // "what the model sees" panel.
+  text?: string;
 };
 
 // One native tool call + its (eventual) result, in the SAME order the

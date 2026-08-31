@@ -96,3 +96,102 @@
   color: var(--muted-foreground);
   text-align: center;
 }
+
+/* --- 70/30 info bar at the bottom of the viewer ------------------------- */
+.infoBar {
+  flex-shrink: 0;
+  display: flex;
+  border-top: 1px solid var(--border);
+  /* Sizes to content but never eats the whole panel; the extracted-text
+     block scrolls internally past this. */
+  max-height: 16rem;
+}
+
+/* 70%: compact metadata row + "what the model sees" extracted text. */
+.meta {
+  flex: 0 0 70%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.85rem;
+  overflow: hidden;
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.3rem;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.metaBit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.metaDot {
+  opacity: 0.55;
+}
+
+.metaLabel {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+}
+
+.metaText {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.metaMuted {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* 30%: file identity. */
+.file {
+  flex: 0 0 30%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.fileRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.fileKey {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+}
+
+.fileVal {
+  font-size: 0.78rem;
+  color: var(--foreground);
+  word-break: break-word;
+}
