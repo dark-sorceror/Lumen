@@ -31,6 +31,14 @@
 
 .editorDisabled {
   opacity: 0.5;
+  /* When the server is unreachable the composer is inert: clicking must not
+     focus the field (no blinking caret, no `:focus-within` lift/ring on the
+     composer) and text can't be selected. `pointer-events: none` stops a
+     click from ever placing the caret; `caret-color: transparent` hides it
+     on the off chance focus arrives some other way. */
+  pointer-events: none;
+  caret-color: transparent;
+  user-select: none;
 }
 
 .placeholder {

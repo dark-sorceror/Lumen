@@ -25,7 +25,7 @@
    elevated shadow variable also carries a faint light inset keyline and the
    surface brightens slightly, since pure drop shadows barely read on dark
    backgrounds. */
-.composer:focus-within,
+.composer:not(.disabled):focus-within,
 .composer.streaming {
   transform: translateY(-2px);
   box-shadow: var(--composer-shadow-elevated);
@@ -33,10 +33,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer:focus-within,
+  .composer:not(.disabled):focus-within,
   .composer.streaming {
     transform: none;
   }
+}
+
+/* Server unreachable: the whole composer reads as inert. The editor itself
+   is made unfocusable (see MarkdownEditor.module.css .editorDisabled) so
+   there's no caret/glow; this just signals "not interactive" on hover over
+   the surrounding surface. Individual toolbar buttons carry their own
+   :disabled styling already. */
+.composer.disabled {
+  cursor: not-allowed;
 }
 
 /* Animated gradient ring: an absolutely-positioned, mask-clipped pseudo-
@@ -77,7 +86,7 @@
   }
 }
 
-.composer:focus-within::before,
+.composer:not(.disabled):focus-within::before,
 .composer.streaming::before {
   opacity: 1;
   animation-play-state: running;

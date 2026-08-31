@@ -217,7 +217,9 @@ export default function Composer({
   const sendDisabled = disabled || uploadsPending || (isEmpty && !hasReadyAttachment);
 
   return (
-    <div className={`${styles.composer} ${streaming ? styles.streaming : ""}`}>
+    <div
+      className={`${styles.composer} ${streaming ? styles.streaming : ""} ${disabled ? styles.disabled : ""}`}
+    >
       <AttachmentRow attachments={attachments} onRemove={removeAttachment} disabled={disabled} />
       <MarkdownEditor
         ref={editorRef}
