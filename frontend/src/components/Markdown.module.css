@@ -144,53 +144,59 @@
    globals.css themes the rest of the app). Kept to a handful of muted
    hues -- comments intentionally reuse --muted-foreground so they sit at
    the same "de-emphasized text" level as the rest of the UI. */
-.markdown .hljs-keyword,
-.markdown .hljs-selector-tag,
-.markdown .hljs-literal,
-.markdown .hljs-section,
-.markdown .hljs-link {
+/* NOTE: highlight.js emits GLOBAL class names (`hljs-keyword`, ...) into the
+   rendered DOM. In a CSS Module every bare `.hljs-*` selector would be
+   hashed/scoped and thus never match those global classes -- which is why
+   syntax colors weren't showing. Each token class is therefore wrapped in
+   `:global(...)`, while the `.markdown` wrapper stays scoped so the palette
+   only applies inside our rendered markdown. */
+.markdown :global(.hljs-keyword),
+.markdown :global(.hljs-selector-tag),
+.markdown :global(.hljs-literal),
+.markdown :global(.hljs-section),
+.markdown :global(.hljs-link) {
   color: #7c3aed;
 }
 
-.markdown .hljs-string,
-.markdown .hljs-regexp,
-.markdown .hljs-addition {
+.markdown :global(.hljs-string),
+.markdown :global(.hljs-regexp),
+.markdown :global(.hljs-addition) {
   color: #15803d;
 }
 
-.markdown .hljs-comment,
-.markdown .hljs-quote,
-.markdown .hljs-deletion {
+.markdown :global(.hljs-comment),
+.markdown :global(.hljs-quote),
+.markdown :global(.hljs-deletion) {
   color: var(--muted-foreground);
   font-style: italic;
 }
 
-.markdown .hljs-number,
-.markdown .hljs-symbol,
-.markdown .hljs-bullet {
+.markdown :global(.hljs-number),
+.markdown :global(.hljs-symbol),
+.markdown :global(.hljs-bullet) {
   color: #b45309;
 }
 
-.markdown .hljs-title,
-.markdown .hljs-title.function_,
-.markdown .hljs-title.class_,
-.markdown .hljs-type {
+.markdown :global(.hljs-title),
+.markdown :global(.hljs-title.function_),
+.markdown :global(.hljs-title.class_),
+.markdown :global(.hljs-type) {
   color: #1d4ed8;
 }
 
-.markdown .hljs-attr,
-.markdown .hljs-attribute,
-.markdown .hljs-name,
-.markdown .hljs-built_in,
-.markdown .hljs-variable.language_ {
+.markdown :global(.hljs-attr),
+.markdown :global(.hljs-attribute),
+.markdown :global(.hljs-name),
+.markdown :global(.hljs-built_in),
+.markdown :global(.hljs-variable.language_) {
   color: #0f766e;
 }
 
-.markdown .hljs-emphasis {
+.markdown :global(.hljs-emphasis) {
   font-style: italic;
 }
 
-.markdown .hljs-strong {
+.markdown :global(.hljs-strong) {
   font-weight: 600;
 }
 
@@ -257,38 +263,38 @@
    background. .hljs-comment isn't repeated here since it already tracks
    --muted-foreground, which globals.css re-themes for dark mode. */
 @media (prefers-color-scheme: dark) {
-  .markdown .hljs-keyword,
-  .markdown .hljs-selector-tag,
-  .markdown .hljs-literal,
-  .markdown .hljs-section,
-  .markdown .hljs-link {
+  .markdown :global(.hljs-keyword),
+  .markdown :global(.hljs-selector-tag),
+  .markdown :global(.hljs-literal),
+  .markdown :global(.hljs-section),
+  .markdown :global(.hljs-link) {
     color: #c4a7ff;
   }
 
-  .markdown .hljs-string,
-  .markdown .hljs-regexp,
-  .markdown .hljs-addition {
+  .markdown :global(.hljs-string),
+  .markdown :global(.hljs-regexp),
+  .markdown :global(.hljs-addition) {
     color: #8ddb9e;
   }
 
-  .markdown .hljs-number,
-  .markdown .hljs-symbol,
-  .markdown .hljs-bullet {
+  .markdown :global(.hljs-number),
+  .markdown :global(.hljs-symbol),
+  .markdown :global(.hljs-bullet) {
     color: #f0b975;
   }
 
-  .markdown .hljs-title,
-  .markdown .hljs-title.function_,
-  .markdown .hljs-title.class_,
-  .markdown .hljs-type {
+  .markdown :global(.hljs-title),
+  .markdown :global(.hljs-title.function_),
+  .markdown :global(.hljs-title.class_),
+  .markdown :global(.hljs-type) {
     color: #8ab4f8;
   }
 
-  .markdown .hljs-attr,
-  .markdown .hljs-attribute,
-  .markdown .hljs-name,
-  .markdown .hljs-built_in,
-  .markdown .hljs-variable.language_ {
+  .markdown :global(.hljs-attr),
+  .markdown :global(.hljs-attribute),
+  .markdown :global(.hljs-name),
+  .markdown :global(.hljs-built_in),
+  .markdown :global(.hljs-variable.language_) {
     color: #5eead4;
   }
 }
