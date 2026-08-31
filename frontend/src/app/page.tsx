@@ -50,7 +50,15 @@ export default function Home() {
     const container = scrollRef.current;
     if (!container) return;
     const handleScroll = () => {
-      const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+      // Distance of the LAST message's bottom below the viewport bottom --
+      // not raw scroll distance -- so the reserved tail spacer (MessageList,
+      // which lets a new turn scroll to the top) doesn't keep the button
+      // stuck on with the answer already fully in view.
+      const anchors = container.querySelectorAll('[id^="msg-"]');
+      const lastAnchor = anchors[anchors.length - 1];
+      const distance = lastAnchor
+        ? lastAnchor.getBoundingClientRect().bottom - container.getBoundingClientRect().bottom
+        : container.scrollHeight - container.scrollTop - container.clientHeight;
       setShowJumpButton(distance > JUMP_BUTTON_THRESHOLD_PX);
     };
     handleScroll();
@@ -67,7 +75,12 @@ export default function Home() {
   const scrollToBottom = () => {
     const container = scrollRef.current;
     if (!container) return;
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    // Scroll the LAST message's bottom into view (not the tail spacer's), so
+    // "jump to latest" lands on the answer's end, never in reserved space.
+    const anchors = container.querySelectorAll('[id^="msg-"]');
+    const lastAnchor = anchors[anchors.length - 1];
+    if (lastAnchor) lastAnchor.scrollIntoView({ block: "end", behavior: "smooth" });
+    else container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   };
 
   // Defensive: messages always start empty on mount today (no persistence
