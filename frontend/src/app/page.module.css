@@ -228,11 +228,16 @@
    edge. Kept modest in height and steep near the top so the last line stays
    legible when scrolled fully to the bottom. */
 .bottomFade {
-  position: absolute;
-  left: 0;
-  right: 0;
+  /* Sticky rather than absolute, and a child of .scroll rather than of
+     .scrollArea: sticky pins it to the bottom of the scrollport exactly like
+     the old overlay did, but as a flex item it spans the content box only --
+     so it stops painting over the scrollbar. The negative margin cancels its
+     own height so it adds nothing to the scrollable range. */
+  position: sticky;
   bottom: 0;
+  flex: none;
   height: var(--bottom-fade-h);
+  margin-top: calc(-1 * var(--bottom-fade-h));
   z-index: 4;
   pointer-events: none;
   background: linear-gradient(

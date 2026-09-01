@@ -161,12 +161,17 @@ export default function Home() {
                   onOpenAttachment={setPreview}
                 />
               )}
+              {/* Soft fade at the bottom of the scroll region so messages
+                  dissolve into the background as they approach the composer,
+                  instead of being hard-cut by its top edge. Non-interactive.
+
+                  Lives INSIDE .scroll (sticky, not absolute against
+                  .scrollArea): a flex item is laid out in the scroll
+                  container's content box, which excludes the scrollbar, so the
+                  gradient can no longer tint the scrollbar itself the way a
+                  full-width overlay did. */}
+              {!isEmpty && <div className={styles.bottomFade} aria-hidden="true" />}
             </div>
-            {/* Soft fade at the bottom of the scroll region so messages
-                dissolve into the background as they approach the composer,
-                instead of being hard-cut by its top edge. Non-interactive
-                overlay; sits below the jump button. */}
-            {!isEmpty && <div className={styles.bottomFade} aria-hidden="true" />}
             {showJumpButton && (
               <button
                 type="button"
