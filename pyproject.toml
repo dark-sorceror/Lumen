@@ -1,7 +1,7 @@
 [project]
 name = "lumen"
 version = "0.1.0"
-description = "Lumen: a white-box LLM workbench with controllable local inference on MLX"
+description = "A white-box LLM workbench: own the decode loop, inspect and edit the live context"
 requires-python = ">=3.12"
 dependencies = [
     "mlx-lm>=0.24",
