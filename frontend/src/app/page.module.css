@@ -173,6 +173,11 @@
    so the rail stays visually pinned in place while messages scroll beneath
    it instead of scrolling away with them. */
 .scrollArea {
+  /* Height of the bottom fade-out. Shared so .bottomFade's size and the
+     scroll clearance that keeps content out from under it can never drift
+     apart -- when they did, "scroll to the bottom" parked the last line of a
+     reply inside the fade and it read as half-washed-out. */
+  --bottom-fade-h: 2.75rem;
   position: relative;
   min-height: 0;
   display: flex;
@@ -190,6 +195,11 @@
 .scroll {
   min-height: 0;
   overflow-y: auto;
+  /* Keep scrollIntoView (the streaming follow, the jump-to-bottom button, a
+     timeline tick) from aligning content flush with the bottom edge, where the
+     fade would wash out the last line and leave the reply looking cut off
+     until you nudged the wheel. */
+  scroll-padding-bottom: var(--bottom-fade-h);
   /* NOT scroll-behavior: smooth. The per-token "stick to bottom" follow uses
      an instant scroll -- if it animated, each token would start a smooth
      scroll that fights the user the moment they try to drag up, making it
@@ -222,7 +232,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 2.75rem;
+  height: var(--bottom-fade-h);
   z-index: 4;
   pointer-events: none;
   background: linear-gradient(
