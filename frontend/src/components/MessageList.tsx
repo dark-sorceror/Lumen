@@ -57,6 +57,8 @@ export default function MessageList({ messages, streaming, scrollRef, onOpenAtta
   const prevLastUserRef = useRef(-1);
   // Timestamp until which scroll events are assumed to be ours, not the user's.
   const selfScrollUntilRef = useRef(0);
+  // scrollTop as of the previous layout pass, to detect a settled scroll.
+  const lastTopRef = useRef(-1);
 
   // Intent tracking. Deliberately NOT position-derived: the tail spacer means
   // "near the bottom of the scroll range" says nothing about whether the user
@@ -172,6 +174,11 @@ export default function MessageList({ messages, streaming, scrollRef, onOpenAtta
     }
     tail.style.height = `${need}px`;
     tailHRef.current = need;
+    // Read a layout property to flush the height we just set. Without this the
+    // scroll below clamps against the PREVIOUS (shorter) range and the pin
+    // lands short of the top -- the message parks a spacer's-worth down and,
+    // because pinning only fires once per turn, never gets corrected.
+    const maxScroll = container.scrollHeight - container.clientHeight;
 
     const isNewUserTurn = userIdx !== -1 && userIdx !== prevLastUserRef.current;
     prevLastUserRef.current = userIdx;
@@ -185,7 +192,22 @@ export default function MessageList({ messages, streaming, scrollRef, onOpenAtta
       return;
     }
 
+    // Track whether the view is still moving, so a correction below can tell a
+    // finished scroll from one still animating.
+    const settled = container.scrollTop === lastTopRef.current;
+    lastTopRef.current = container.scrollTop;
+
     if (modeRef.current === "pinned") {
+      // Finish a pin that landed short. The initial scrollTo is clamped by the
+      // scroll range as it exists at that instant, and the reply's first
+      // frames then grow it -- leaving the message parked a spacer's-worth
+      // below the top with nothing to correct it. Re-assert the target once
+      // the first scroll has settled and the range can actually reach it.
+      if (haveTarget && settled && container.scrollTop < target - 1 && target <= maxScroll) {
+        markSelfScroll();
+        container.scrollTo({ top: target });
+        return;
+      }
       // Hold still while the reply fills the reserved space. Once it outgrows
       // the viewport there is nothing left to reveal by holding, so hand over
       // to normal bottom-following.
