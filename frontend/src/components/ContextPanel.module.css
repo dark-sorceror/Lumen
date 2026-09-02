@@ -346,3 +346,66 @@
     opacity: 1;
   }
 }
+
+/* --- measurement readout ------------------------------------------------
+   The Measure button runs one forward pass with taps; results render as a
+   per-layer logit-lens strip plus a share-of-attention badge on each card. */
+.measureBtn {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.68rem;
+  font-family: inherit;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.measureBtn:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--sidebar-bg);
+}
+
+.measureBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.lens {
+  order: -1;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.lensRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.68rem;
+}
+
+.lensLayer {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted-foreground);
+}
+
+.lensTokens {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mass {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted-foreground);
+}

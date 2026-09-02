@@ -23,6 +23,8 @@ export default function Home() {
     cacheImpact,
     editError,
     getContext,
+    inspect,
+    inspection,
     previewEdit,
     applyEdit,
     stats,
@@ -227,6 +229,8 @@ export default function Home() {
           cacheImpact={cacheImpact}
           editError={editError}
           onRequestContext={getContext}
+          inspection={inspection}
+          onInspect={inspect}
           onPreviewEdit={previewEdit}
           onApplyEdit={applyEdit}
         />

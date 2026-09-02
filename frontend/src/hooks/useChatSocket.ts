@@ -180,7 +180,13 @@ type EditRejectedEvent = {
   message: string;
 };
 
+type InspectionEvent = {
+  type: "inspection";
+  layers: LayerInspection[];
+};
+
 type ServerEvent =
+  | InspectionEvent
   | TokenEvent
   | DoneEvent
   | ErrorEvent
@@ -219,6 +225,18 @@ export function splitThinking(raw: string): { thoughts: string; text: string } {
   return { thoughts, text: before + after };
 }
 
+
+// v1.3 inspection: an on-demand measurement of the live context. Requested
+// rather than streamed -- a hidden state is d_model floats per layer per
+// token, far too much to push alongside the token stream.
+export type LensEntry = { token_id: number; text: string; logprob: number };
+export type SegmentMass = { segment_id: string; mass: number };
+export type LayerInspection = {
+  layer: number;
+  lens: LensEntry[];
+  attention_mass: SegmentMass[];
+};
+
 export function useChatSocket() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -228,6 +246,7 @@ export function useChatSocket() {
   const [editError, setEditError] = useState<string | null>(null);
   // Live token-stats readout for the current/last response.
   const [stats, setStats] = useState<GenStats | null>(null);
+  const [inspection, setInspection] = useState<LayerInspection[] | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   // Accumulated raw text of the CURRENT ROUND only (not the whole turn).
@@ -479,6 +498,8 @@ export function useChatSocket() {
             process: [],
           },
         ]);
+      } else if (data.type === "inspection") {
+        setInspection(data.layers as LayerInspection[]);
       } else if (data.type === "context") {
         setContext(data.segments);
       } else if (data.type === "cache_impact") {
@@ -580,6 +601,15 @@ export function useChatSocket() {
     ws.send(JSON.stringify({ type: "get_context" }));
   }, []);
 
+  const inspect = useCallback((layers?: number[]) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Guard the shape rather than trusting the caller: wiring this straight to
+    // an onClick would otherwise pass a React event in as `layers`.
+    const valid = Array.isArray(layers) && layers.every((n) => Number.isInteger(n));
+    ws.send(JSON.stringify({ type: "inspect", ...(valid ? { layers } : {}) }));
+  }, []);
+
   // Shared sender for the one wire-legal edit op the UI offers
   // (replace_text). "append"/"delete"/"move" are deliberately not exposed
   // here -- v1's UI only supports replace-in-place, and the server also
@@ -626,6 +656,8 @@ export function useChatSocket() {
     cacheImpact,
     editError,
     getContext,
+    inspect,
+    inspection,
     previewEdit,
     applyEdit,
     stats,

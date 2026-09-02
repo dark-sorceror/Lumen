@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CacheImpact, Segment } from "@/hooks/useChatSocket";
+import type { CacheImpact, LayerInspection, Segment } from "@/hooks/useChatSocket";
 import styles from "./ContextPanel.module.css";
 
 type Props = {
@@ -12,6 +12,8 @@ type Props = {
   cacheImpact: CacheImpact | null;
   editError: string | null;
   onRequestContext: () => void;
+  inspection: LayerInspection[] | null;
+  onInspect: () => void;
   onPreviewEdit: (segmentId: string, newText: string) => void;
   onApplyEdit: (segmentId: string, newText: string) => void;
 };
@@ -50,9 +52,22 @@ export default function ContextPanel({
   cacheImpact,
   editError,
   onRequestContext,
+  inspection,
+  onInspect,
   onPreviewEdit,
   onApplyEdit,
 }: Props) {
+  // Attention mass is reported per layer; the card badges show the DEEPEST
+  // measured layer, which is the one whose attention most nearly reflects the
+  // final prediction. The per-layer breakdown lives in the block below.
+  const deepest = inspection && inspection.length
+    ? inspection[inspection.length - 1]
+    : null;
+  const massFor = (segmentId: string): number | null => {
+    const hit = deepest?.attention_mass.find((m) => m.segment_id === segmentId);
+    return hit ? hit.mass : null;
+  };
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftText, setDraftText] = useState("");
   const [pendingApply, setPendingApply] = useState(false);
@@ -132,8 +147,31 @@ export default function ContextPanel({
         aria-hidden={!open}
         aria-label="Context inspector"
       >
+        {inspection && inspection.length > 0 && (
+          <div className={styles.lens}>
+            {inspection.map((entry) => (
+              <div key={entry.layer} className={styles.lensRow}>
+                <span className={styles.lensLayer}>L{entry.layer}</span>
+                <span className={styles.lensTokens}>
+                  {entry.lens.map((t) => JSON.stringify(t.text)).join("  ")}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className={styles.header}>
           <span className={styles.title}>Context</span>
+          {/* onInspect is wrapped: handing the handler straight to onClick
+              would pass React's click event in as `layers`. */}
+          <button
+            type="button"
+            className={styles.measureBtn}
+            onClick={() => onInspect()}
+            disabled={streaming}
+            title="Run one forward pass with taps: what each layer would predict, and where its attention went"
+          >
+            Measure
+          </button>
           <button
             type="button"
             className={styles.closeBtn}
@@ -195,6 +233,14 @@ export default function ContextPanel({
                         {KIND_LABEL[seg.kind]}
                       </span>
                       <span className={styles.provenance}>{seg.provenance}</span>
+                      {massFor(seg.id) !== null && (
+                        <span
+                          className={styles.mass}
+                          title="Share of the deepest measured layer's attention that landed on this segment"
+                        >
+                          {(massFor(seg.id)! * 100).toFixed(0)}%
+                        </span>
+                      )}
                       {!isEditable(seg) && (
                         <svg
                           className={styles.lockIcon}
