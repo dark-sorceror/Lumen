@@ -1470,3 +1470,54 @@ def test_user_abort_during_tool_execution_stops_turn():
     assert any(m["type"] == "tool_result" for m in msgs)
     assert msgs[-1] == {"type": "done", "finish_reason": "aborted"}, msgs
     assert engine.calls == 2
+
+
+# ------------------------------------------------------- Context inspection
+
+class InspectableEngine(ScriptedEngine):
+    """Adds the measurement API the inspect handler drives."""
+    n_layers = 3
+
+    def __init__(self):
+        super().__init__()
+        self.inspected: list[tuple] = []
+
+    def inspect(self, tokens, layers, top_k=5):
+        self.inspected.append((list(tokens), tuple(layers), top_k))
+        import mlx.core as mx
+        n = len(tokens)
+        # all attention on the FIRST token, so per-segment mass is unambiguous
+        row = mx.array([1.0] + [0.0] * (n - 1))
+        return {l: {"lens": {7: -0.25}, "attention": row} for l in layers}
+
+
+@pytest.mark.timeout(10)
+def test_inspect_returns_lens_and_per_segment_attention_mass():
+    engine = InspectableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+        ws.send_json({"type": "inspect", "layers": [0, 2]})
+        msg = drain_until(ws, "inspection")
+
+    assert [entry["layer"] for entry in msg["layers"]] == [0, 2]
+    first = msg["layers"][0]
+    assert first["lens"][0]["token_id"] == 7
+    # mass is reported per segment id, and sums to the attention that landed
+    # inside the spans
+    assert first["attention_mass"], "expected per-segment mass"
+    assert sum(e["mass"] for e in first["attention_mass"]) == pytest.approx(1.0)
+
+
+@pytest.mark.timeout(10)
+def test_inspect_measures_the_live_context_tokens():
+    engine = InspectableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+        ws.send_json({"type": "inspect"})
+        drain_until(ws, "inspection")
+
+    tokens, layers, _ = engine.inspected[-1]
+    assert tokens, "inspect should be handed the assembled context tokens"
+    assert layers, "inspect should default to a spread of layers"

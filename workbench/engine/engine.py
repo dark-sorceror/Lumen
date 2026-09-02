@@ -13,7 +13,8 @@ import mlx.core as mx
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
-from workbench.engine.taps import capture_layer_outputs, top_k_logprobs
+from workbench.engine.taps import (capture_attention, capture_layer_outputs,
+                                   logit_lens, top_k_logprobs)
 
 
 @dataclass
@@ -173,6 +174,26 @@ class Engine:
             yield from self._run(list(prompt_tokens), params, control, track=False)
         finally:
             self._cache, self._cached_tokens = saved
+
+    def inspect(self, tokens: list[int], layers, top_k: int = 5) -> dict:
+        """Measure one forward pass over `tokens` without generating.
+
+        Returns, per requested layer, what that depth would predict (`lens`)
+        and where its attention went (`attention`, a row over key positions).
+
+        Runs on a THROWAWAY cache: measuring the context must never disturb the
+        session's KV state, or inspecting would silently change what a later
+        edit costs."""
+        layers = tuple(layers)
+        cache = make_prompt_cache(self.model)
+        with capture_attention(self.model, layers) as attention:
+            with capture_layer_outputs(self.model, layers) as hidden:
+                self.model(mx.array(tokens)[None], cache=cache)
+        lens = logit_lens(self.model, hidden, k=top_k)
+        return {
+            layer: {"lens": lens.get(layer, {}), "attention": attention.get(layer)}
+            for layer in layers
+        }
 
     # -- shared loop -----------------------------------------------------
 

@@ -4,9 +4,14 @@ import pytest
 from workbench.context.manager import CacheImpact
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.engine import TokenEvent
-from workbench.server.protocol import (cache_impact_msg, context_msg, done_msg,
+from workbench.server.protocol import (
+    inspection_msg,cache_impact_msg, context_msg, done_msg,
                                        edit_rejected_msg, parse_client_msg, token_msg,
                                        )
+
+
+_VALID_EVENT = {"op": "replace_text", "segment_id": "s1",
+                "payload": {"text": "hi"}, "actor": "user"}
 
 
 def test_token_msg_from_event():
@@ -18,9 +23,6 @@ def test_token_msg_from_event():
 
 def test_done_msg():
     assert done_msg("stop") == {"type": "done", "finish_reason": "stop"}
-
-
-# -- v1.2: tool calling -------------------------------------------------
 
 
 def test_token_msg_without_override_uses_event_text():
@@ -44,18 +46,8 @@ def test_parse_client_msg_invalid():
         parse_client_msg('{"type": "user_message"}')  # missing text
 
 
-# -- Attachments: optional attachment_ids on user_message -----------
-
-
-# -- v1.1: get_context / preview_edit / apply_edit ---------------------------
-
-
 def test_parse_get_context():
     assert parse_client_msg('{"type": "get_context"}') == {"type": "get_context"}
-
-
-_VALID_EVENT = {"op": "replace_text", "segment_id": "s1",
-                "payload": {"text": "hi"}, "actor": "user"}
 
 
 @pytest.mark.parametrize("msg_type", ["preview_edit", "apply_edit"])
@@ -183,9 +175,6 @@ def test_parse_user_message_non_string_items_in_attachment_ids_rejected():
             {"type": "user_message", "text": "hey", "attachment_ids": ["ok", 5]}))
 
 
-# -- v1.1: get_context / preview_edit / apply_edit ---------------------------
-
-
 def test_done_msg_tool_limit_finish_reason():
     assert done_msg("tool_limit") == {"type": "done", "finish_reason": "tool_limit"}
 
@@ -214,3 +203,30 @@ def test_tool_result_msg_error():
     msg = tool_result_msg("tc_0", "calculator", "error: bad expression", error=True)
     assert msg["error"] is True
     assert msg["result"] == "error: bad expression"
+
+
+def test_parse_inspect_message_with_layers():
+    msg = parse_client_msg('{"type": "inspect", "layers": [0, 5]}')
+    assert msg["type"] == "inspect"
+    assert msg["layers"] == [0, 5]
+
+
+def test_parse_inspect_defaults_to_no_explicit_layers():
+    assert "layers" not in parse_client_msg('{"type": "inspect"}')
+
+
+def test_parse_inspect_rejects_non_integer_layers():
+    with pytest.raises(ValueError):
+        parse_client_msg('{"type": "inspect", "layers": ["oops"]}')
+
+
+def test_inspection_msg_carries_lens_and_attention_per_layer():
+    m = inspection_msg([
+        {"layer": 0,
+         "lens": [{"token_id": 7, "text": " Paris", "logprob": -0.2}],
+         "attention_mass": [{"segment_id": "s1", "mass": 0.81}]},
+    ])
+    assert m["type"] == "inspection"
+    assert m["layers"][0]["layer"] == 0
+    assert m["layers"][0]["lens"][0]["text"] == " Paris"
+    assert m["layers"][0]["attention_mass"][0]["mass"] == 0.81

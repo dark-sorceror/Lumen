@@ -152,3 +152,8 @@ def capture_attention(model, layer_indices):
         yield captured
     finally:
         module.scaled_dot_product_attention = original
+
+
+def layer_count(model) -> int:
+    """How many transformer blocks the model has."""
+    return len(_layer_list(model))

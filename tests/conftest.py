@@ -44,6 +44,13 @@ class FakeLayer:
         self.index = index
 
     def __call__(self, h, *args, **kwargs):
+        # Route one attention call through the module entry point, so a single
+        # fake exercises hidden-state capture, the lens, and attention capture.
+        n_keys = h.shape[1]
+        q = mx.array([[[[1.0, 0.0]]]])
+        k = mx.array([[[[float(j) * (self.index + 1), 0.0] for j in range(n_keys)]]])
+        v = mx.zeros((1, 1, n_keys, 2))
+        scaled_dot_product_attention(q, k, v, scale=1.0)
         return h + (self.index + 1)
 
 

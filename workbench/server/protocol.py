@@ -7,7 +7,7 @@ from workbench.context.manager import CacheImpact
 from workbench.context.model import ContextObject
 from workbench.engine.engine import TokenEvent
 
-CLIENT_TYPES = {"user_message", "pause", "resume", "abort",
+CLIENT_TYPES = {"user_message", "pause", "resume", "abort", "inspect",
                 "get_context", "preview_edit", "apply_edit"}
 
 _EVENT_FIELDS = {"op": str, "segment_id": str, "payload": dict, "actor": str}
@@ -49,6 +49,10 @@ def parse_client_msg(raw: str) -> dict:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
                 raise ValueError(
                     "user_message.attachment_ids must be a list of strings")
+    if msg["type"] == "inspect" and "layers" in msg:
+        layers = msg["layers"]
+        if not isinstance(layers, list) or not all(isinstance(i, int) for i in layers):
+            raise ValueError("inspect.layers must be a list of integers")
     if msg["type"] in ("preview_edit", "apply_edit"):
         _validate_event(msg.get("event"))
     return msg
@@ -138,3 +142,14 @@ def cache_impact_msg(impact: CacheImpact, preview: bool) -> dict:
 
 def edit_rejected_msg(message: str) -> dict:
     return {"type": "edit_rejected", "message": message}
+
+
+def inspection_msg(layers: list[dict]) -> dict:
+    """One-shot measurement of the live context (v1.3).
+
+    Requested rather than streamed: a hidden state is d_model floats per layer
+    per token, so pushing activations alongside the token stream is not viable.
+    Each entry carries what that depth would predict (`lens`) and where its
+    attention actually went, aggregated to context SEGMENTS rather than raw
+    token positions -- segments being the unit the client can edit."""
+    return {"type": "inspection", "layers": layers}

@@ -134,3 +134,28 @@ def test_capture_attention_handles_grouped_query_attention(fake_gqa_model):
 
     assert captured[0].shape == (fake_gqa_model.n_keys,)
     assert float(captured[0].sum().item()) == pytest.approx(1.0)
+
+
+def test_engine_inspect_returns_lens_and_attention_per_layer(fake_layered_model, fake_tokenizer):
+    """One forward pass answers both 'what would this depth predict' and
+    'where did this depth look' -- without disturbing the session cache."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    out = engine.inspect([1, 2, 3], layers=(0, 2), top_k=1)
+
+    assert set(out) == {0, 2}
+    # last token is 3 -> layer 0 hidden 4.0 -> fake head peaks at token 4
+    assert list(out[0]["lens"]) == [4]
+    assert out[0]["attention"].shape == (3,)
+    assert float(out[0]["attention"].sum().item()) == pytest.approx(1.0)
+
+
+def test_engine_inspect_leaves_the_session_cache_untouched(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    engine.start_session()
+    list(engine.generate_with_cache([1, 2], GenParams(max_tokens=1)))
+    before = list(engine._cached_tokens)
+
+    engine.inspect([9, 9, 9], layers=(0,), top_k=1)
+
+    assert engine._cached_tokens == before

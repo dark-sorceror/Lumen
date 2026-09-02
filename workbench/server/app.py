@@ -28,6 +28,7 @@ from workbench.context.manager import ContextManager
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.control import Control, ControlQueue
 from workbench.engine.engine import GenParams
+from workbench.engine.taps import attention_mass_by_segment, layer_count
 from workbench.server import protocol
 from workbench.server.framing import frame_message, frame_tool_result, generation_prompt_segment
 from workbench.tools import TOOL_ERROR_PREFIX, ToolContext, ToolRegistry, is_tool_error
@@ -746,6 +747,42 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
         def _reject(reason: str):
             return ws.send_json(protocol.edit_rejected_msg(reason))
 
+        async def handle_inspect(msg: dict) -> None:
+            """Measure the live context: what each depth would predict, and
+            where its attention landed -- reported per SEGMENT, since segments
+            are what the client can actually edit."""
+            tokenized = manager.to_tokens()
+            n = getattr(engine, "n_layers", None) or layer_count(engine.model)
+            requested = msg.get("layers")
+            if not requested:
+                # A spread across depth: early, middle, and final block.
+                requested = sorted({0, max(0, n // 2), max(0, n - 1)})
+            layers = tuple(i for i in requested if 0 <= i < n)
+            if not layers:
+                await _reject("no valid layer indices for this model")
+                return
+
+            measured = engine.inspect(tokenized.tokens, layers,
+                                      top_k=int(msg.get("top_k", 5)))
+            spans = list(tokenized.spans.items())
+            payload = []
+            for layer in layers:
+                entry = measured.get(layer) or {}
+                lens = [
+                    {"token_id": tid,
+                     "text": tokenizer.decode([tid]),
+                     "logprob": float(lp)}
+                    for tid, lp in (entry.get("lens") or {}).items()
+                ]
+                mass = []
+                row = entry.get("attention")
+                if row is not None and spans:
+                    values = attention_mass_by_segment(row, [sp for _, sp in spans])
+                    mass = [{"segment_id": sid, "mass": m}
+                            for (sid, _), m in zip(spans, values)]
+                payload.append({"layer": layer, "lens": lens, "attention_mass": mass})
+            await ws.send_json(protocol.inspection_msg(payload))
+
         async def handle_edit(msg: dict) -> None:
             event_dict = msg["event"]
             if event_dict["actor"] != "user":
@@ -806,6 +843,11 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                                        int(msg.get("top_k_logprobs", 0))))
                 elif msg["type"] == "get_context":
                     await ws.send_json(protocol.context_msg(ctx))
+                elif msg["type"] == "inspect":
+                    if generating:
+                        await _reject("generation in progress; pause or wait")
+                        continue
+                    await handle_inspect(msg)
                 elif msg["type"] in ("preview_edit", "apply_edit"):
                     if generating:
                         await _reject("generation in progress; pause or wait")
