@@ -47,6 +47,26 @@ class FakeLayer:
         return h + (self.index + 1)
 
 
+class FakeNorm:
+    """Final norm stand-in: identity, so lens assertions stay arithmetic."""
+
+    def __call__(self, h):
+        return h
+
+
+class FakeHead:
+    """Unembedding stand-in: peaks the logit at int(h[0]), so each layer's
+    hidden state maps to a predictable 'prediction' for that depth."""
+
+    def __init__(self, vocab_size: int):
+        self.vocab_size = vocab_size
+
+    def __call__(self, h):
+        row = [0.0] * self.vocab_size
+        row[int(h[0].item()) % self.vocab_size] = 10.0
+        return mx.array(row)
+
+
 class FakeLayeredModel:
     """Like FakeModel, but actually runs a `self.layers` list the way mlx-lm's
     models do -- so layer-level activation taps have something to hook."""
@@ -55,6 +75,8 @@ class FakeLayeredModel:
 
     def __init__(self, n_layers: int = 3):
         self.layers = [FakeLayer(i) for i in range(n_layers)]
+        self.norm = FakeNorm()
+        self.lm_head = FakeHead(self.vocab_size)
 
     def __call__(self, inputs, cache=None):
         n = inputs.shape[1]

@@ -63,3 +63,33 @@ def capture_layer_outputs(model, layer_indices):
     finally:
         for i, original in originals.items():
             layers[i] = original
+
+
+def _readout(model):
+    """The model's (final norm, unembedding) pair, as callables.
+
+    mlx-lm keeps the norm on the inner model and the head either as `lm_head`
+    or, when embeddings are tied, as `embed_tokens.as_linear`."""
+    inner = getattr(model, "model", model)
+    norm = getattr(inner, "norm", None) or (lambda h: h)
+    head = getattr(model, "lm_head", None)
+    if head is None:
+        embed = getattr(inner, "embed_tokens", None)
+        head = getattr(embed, "as_linear", None) if embed is not None else None
+    if head is None:
+        raise AttributeError("model exposes no unembedding to read out")
+    return norm, head
+
+
+def logit_lens(model, hidden: dict, k: int = 5) -> dict[int, dict[int, float]]:
+    """Decode captured hidden states through the model's own readout.
+
+    Answers "what would the model predict if it stopped at this depth" -- the
+    layer at which an answer is already decided is visible as the depth where
+    the top token stops changing."""
+    norm, head = _readout(model)
+    out: dict[int, dict[int, float]] = {}
+    for layer, h in hidden.items():
+        logits = head(norm(h))
+        out[layer] = top_k_logprobs(logits[None], k)
+    return out

@@ -3,7 +3,7 @@ import math
 import mlx.core as mx
 
 from workbench.engine.engine import Engine, GenParams
-from workbench.engine.taps import top_k_logprobs
+from workbench.engine.taps import logit_lens, top_k_logprobs
 
 
 def test_top_k_logprobs_normalized():
@@ -63,3 +63,16 @@ def test_layer_list_is_restored_after_capture(fake_layered_model, fake_tokenizer
     engine = Engine(fake_layered_model, fake_tokenizer)
     list(engine.generate([1], GenParams(max_tokens=2, hidden_layers=(0, 1, 2))))
     assert fake_layered_model.layers == originals
+
+
+def test_logit_lens_reads_each_layer_through_the_unembedding(fake_layered_model, fake_tokenizer):
+    """Different depths decode to different next tokens -- the whole point of a
+    logit lens. Layer 0's hidden state is 2.0 and layer 2's is 7.0, and the fake
+    head peaks at int(h[0])."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    first = next(iter(engine.generate([1], GenParams(max_tokens=1, hidden_layers=(0, 2)))))
+
+    lens = logit_lens(fake_layered_model, first.hidden, k=1)
+
+    assert list(lens[0]) == [2]
+    assert list(lens[2]) == [7]
