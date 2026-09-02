@@ -1,9 +1,11 @@
+import pytest
+
 import math
 
 import mlx.core as mx
 
 from workbench.engine.engine import Engine, GenParams
-from workbench.engine.taps import logit_lens, top_k_logprobs
+from workbench.engine.taps import attention_mass_by_segment, logit_lens, top_k_logprobs
 
 
 def test_top_k_logprobs_normalized():
@@ -76,3 +78,59 @@ def test_logit_lens_reads_each_layer_through_the_unembedding(fake_layered_model,
 
     assert list(lens[0]) == [2]
     assert list(lens[2]) == [7]
+
+
+def test_attention_mass_by_segment_sums_weights_within_each_span():
+    """Per-token attention is not the useful unit -- per-SEGMENT is, because
+    segments are what the context object lets you edit."""
+    weights = mx.array([0.1, 0.2, 0.3, 0.4])
+    spans = [(0, 2), (2, 4)]
+
+    mass = attention_mass_by_segment(weights, spans)
+
+    assert mass[0] == pytest.approx(0.3)
+    assert mass[1] == pytest.approx(0.7)
+
+
+def test_attention_mass_ignores_positions_outside_any_span():
+    """A span list may cover only part of the context (framing tokens, say)."""
+    weights = mx.array([0.5, 0.25, 0.25])
+    mass = attention_mass_by_segment(weights, [(1, 3)])
+    assert mass[0] == pytest.approx(0.5)
+
+
+def test_capture_attention_records_a_distribution_for_requested_layers(fake_attn_model):
+    from workbench.engine.taps import capture_attention
+
+    with capture_attention(fake_attn_model, (0, 2)) as captured:
+        fake_attn_model(mx.array([[1]]))
+
+    assert set(captured) == {0, 2}
+    for layer, row in captured.items():
+        assert row.shape == (fake_attn_model.n_keys,)
+        assert float(row.sum().item()) == pytest.approx(1.0)
+    # different layers weight the same keys differently
+    assert float(captured[0][-1].item()) != pytest.approx(float(captured[2][-1].item()))
+
+
+def test_capture_attention_restores_the_entry_point(fake_attn_model):
+    import sys
+    from workbench.engine.taps import capture_attention
+
+    module = sys.modules[type(fake_attn_model).__module__]
+    original = module.scaled_dot_product_attention
+    with capture_attention(fake_attn_model, (0,)):
+        pass
+    assert module.scaled_dot_product_attention is original
+
+
+def test_capture_attention_handles_grouped_query_attention(fake_gqa_model):
+    """Query heads outnumber KV heads; the fused kernel broadcasts internally,
+    so the recomputation has to expand the KV heads to match."""
+    from workbench.engine.taps import capture_attention
+
+    with capture_attention(fake_gqa_model, (0,)) as captured:
+        fake_gqa_model(mx.array([[1]]))
+
+    assert captured[0].shape == (fake_gqa_model.n_keys,)
+    assert float(captured[0].sum().item()) == pytest.approx(1.0)

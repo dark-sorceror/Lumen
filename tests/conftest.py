@@ -196,3 +196,104 @@ def fake_tokenizer():
 @pytest.fixture
 def fake_layered_model():
     return FakeLayeredModel()
+
+
+def scaled_dot_product_attention(queries, keys, values, scale=1.0, mask=None, **kw):
+    """Stand-in for mlx-lm's fused entry point, called through the MODULE
+    namespace exactly as the real model modules call theirs -- which is the
+    seam attention capture intercepts. Expands grouped-query KV heads the way
+    the real kernel does internally."""
+    q_heads, kv_heads = queries.shape[1], keys.shape[1]
+    if kv_heads and q_heads != kv_heads and q_heads % kv_heads == 0:
+        repeats = q_heads // kv_heads
+        keys = mx.repeat(keys, repeats, axis=1)
+        values = mx.repeat(values, repeats, axis=1)
+    scores = (queries * scale) @ keys.swapaxes(-1, -2)
+    return mx.softmax(scores, axis=-1) @ values
+
+
+class FakeAttnLayer:
+    """A block whose attention routes through the module-level entry point."""
+
+    def __init__(self, index: int, n_keys: int):
+        self.index = index
+        self.n_keys = n_keys
+
+    def __call__(self, h, *args, **kwargs):
+        # queries: one position, 2 dims. keys: n_keys positions whose first
+        # component grows with position, scaled per layer so each layer
+        # produces a visibly different distribution.
+        q = mx.array([[[[1.0, 0.0]]]])
+        rows = [[float(j) * (self.index + 1), 0.0] for j in range(self.n_keys)]
+        k = mx.array([[rows]])
+        v = mx.zeros((1, 1, self.n_keys, 2))
+        scaled_dot_product_attention(q, k, v, scale=1.0)
+        return h
+
+
+class FakeAttnModel:
+    """Layers that each perform one attention call, so capture can be indexed."""
+    vocab_size = 500
+    n_keys = 4
+
+    def __init__(self, n_layers: int = 3):
+        self.layers = [FakeAttnLayer(i, self.n_keys) for i in range(n_layers)]
+
+    def __call__(self, inputs, cache=None):
+        n = inputs.shape[1]
+        h = mx.zeros((1, n, 2))
+        for layer in self.layers:
+            h = layer(h)
+        last = int(inputs[0, -1].item())
+        row = [0.0] * self.vocab_size
+        row[(last + 1) % self.vocab_size] = 10.0
+        return mx.broadcast_to(mx.array(row), (1, n, self.vocab_size))
+
+    def make_cache(self):
+        return []
+
+
+@pytest.fixture
+def fake_attn_model():
+    return FakeAttnModel()
+
+
+class FakeGQALayer:
+    """Grouped-query attention: more query heads than key/value heads, which is
+    what every modern Qwen/Llama checkpoint actually does."""
+
+    def __init__(self, index: int, n_keys: int, n_q_heads: int = 4, n_kv_heads: int = 2):
+        self.index, self.n_keys = index, n_keys
+        self.n_q_heads, self.n_kv_heads = n_q_heads, n_kv_heads
+
+    def __call__(self, h, *args, **kwargs):
+        q = mx.ones((1, self.n_q_heads, 1, 2))
+        k = mx.ones((1, self.n_kv_heads, self.n_keys, 2))
+        v = mx.zeros((1, self.n_kv_heads, self.n_keys, 2))
+        scaled_dot_product_attention(q, k, v, scale=1.0)
+        return h
+
+
+class FakeGQAModel:
+    vocab_size = 500
+    n_keys = 4
+
+    def __init__(self, n_layers: int = 2):
+        self.layers = [FakeGQALayer(i, self.n_keys) for i in range(n_layers)]
+
+    def __call__(self, inputs, cache=None):
+        n = inputs.shape[1]
+        h = mx.zeros((1, n, 2))
+        for layer in self.layers:
+            h = layer(h)
+        row = [0.0] * self.vocab_size
+        row[1] = 10.0
+        return mx.broadcast_to(mx.array(row), (1, n, self.vocab_size))
+
+    def make_cache(self):
+        return []
+
+
+@pytest.fixture
+def fake_gqa_model():
+    return FakeGQAModel()

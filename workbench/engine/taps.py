@@ -93,3 +93,62 @@ def logit_lens(model, hidden: dict, k: int = 5) -> dict[int, dict[int, float]]:
         logits = head(norm(h))
         out[layer] = top_k_logprobs(logits[None], k)
     return out
+
+
+def attention_mass_by_segment(weights, spans) -> list[float]:
+    """Fold a per-position attention row into per-segment totals.
+
+    `weights` is one query position's attention over all key positions;
+    `spans` are [start, end) token ranges, normally taken straight from the
+    ContextObject's segments. Positions covered by no span are dropped, so a
+    partial span list (just the document chunks, say) is meaningful on its own."""
+    return [float(weights[start:end].sum().item()) for start, end in spans]
+
+
+@contextmanager
+def capture_attention(model, layer_indices):
+    """Record each requested block's attention over key positions, for one pass.
+
+    mlx-lm routes every block through a FUSED `scaled_dot_product_attention`
+    that never materialises the weight matrix, so the weights are recomputed
+    from the queries and keys the fused call receives -- post-RoPE, post-norm,
+    with no duplication of upstream projection logic. Blocks run in order, so
+    the call index is the layer index.
+
+    Only the LAST query position is kept, which is the token being produced.
+    The causal mask can be ignored for that row specifically: the final query
+    attends to every key present, so masking would be a no-op there.
+
+    A quantized KV cache hands the fused kernel a non-array key representation;
+    those layers are skipped rather than guessed at.
+
+    Costs an extra QK^T for the requested layers, hence opt-in."""
+    import sys
+
+    module = sys.modules[type(model).__module__]
+    original = module.scaled_dot_product_attention
+    captured: dict[int, mx.array] = {}
+    calls = {"n": 0}
+
+    def recording(queries, keys, values, *args, **kwargs):
+        index = calls["n"]
+        calls["n"] += 1
+        if index in layer_indices and isinstance(keys, mx.array):
+            scale = kwargs.get("scale", 1.0)
+            # Grouped-query attention: several query heads share one KV head.
+            # The fused kernel broadcasts internally; recomputing by hand has
+            # to expand the KV heads to match, or the matmul cannot broadcast.
+            k = keys
+            q_heads, kv_heads = queries.shape[1], keys.shape[1]
+            if kv_heads and q_heads != kv_heads and q_heads % kv_heads == 0:
+                k = mx.repeat(keys, q_heads // kv_heads, axis=1)
+            scores = (queries * scale) @ k.swapaxes(-1, -2)
+            weights = mx.softmax(scores[0, :, -1, :].astype(mx.float32), axis=-1)
+            captured[index] = weights.mean(axis=0)   # average over heads
+        return original(queries, keys, values, *args, **kwargs)
+
+    module.scaled_dot_product_attention = recording
+    try:
+        yield captured
+    finally:
+        module.scaled_dot_product_attention = original
