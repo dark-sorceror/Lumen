@@ -36,6 +36,40 @@ class FakeModel:
         return []
 
 
+class FakeLayer:
+    """One transformer block's worth of behaviour: a pure function of the
+    hidden state, so a captured activation is predictable from the layer index."""
+
+    def __init__(self, index: int):
+        self.index = index
+
+    def __call__(self, h, *args, **kwargs):
+        return h + (self.index + 1)
+
+
+class FakeLayeredModel:
+    """Like FakeModel, but actually runs a `self.layers` list the way mlx-lm's
+    models do -- so layer-level activation taps have something to hook."""
+    vocab_size = 500
+    hidden_dim = 8
+
+    def __init__(self, n_layers: int = 3):
+        self.layers = [FakeLayer(i) for i in range(n_layers)]
+
+    def __call__(self, inputs, cache=None):
+        n = inputs.shape[1]
+        last = int(inputs[0, -1].item())
+        h = mx.zeros((1, n, self.hidden_dim)) + float(last)
+        for layer in self.layers:
+            h = layer(h)
+        row = [0.0] * self.vocab_size
+        row[(last + 1) % self.vocab_size] = 10.0
+        return mx.broadcast_to(mx.array(row), (1, n, self.vocab_size))
+
+    def make_cache(self):
+        return []
+
+
 class FakeDetokenizer:
     """Mirrors mlx_lm's StreamingDetokenizer contract closely enough to pin
     the engine's finalize-and-flush wiring: `last_segment` is a delta since
@@ -135,3 +169,8 @@ def fake_model():
 @pytest.fixture
 def fake_tokenizer():
     return FakeTokenizer()
+
+
+@pytest.fixture
+def fake_layered_model():
+    return FakeLayeredModel()

@@ -27,3 +27,39 @@ def test_engine_emits_no_logprobs_by_default(fake_model, fake_tokenizer):
     engine = Engine(fake_model, fake_tokenizer)
     events = list(engine.generate([1], GenParams(max_tokens=2)))
     assert all(e.top_logprobs == {} for e in events)
+
+
+def test_engine_captures_hidden_states_for_requested_layers(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    events = list(engine.generate([1], GenParams(max_tokens=2, hidden_layers=(0, 2))))
+
+    assert events, "expected at least one token event"
+    for e in events:
+        assert set(e.hidden) == {0, 2}
+        assert e.hidden[0].shape == (fake_layered_model.hidden_dim,)
+
+
+def test_hidden_capture_is_off_by_default(fake_layered_model, fake_tokenizer):
+    """The default path must not wrap layers or carry activations."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    events = list(engine.generate([1], GenParams(max_tokens=2)))
+    assert all(e.hidden == {} for e in events)
+
+
+def test_captured_hidden_is_that_layer_s_output(fake_layered_model, fake_tokenizer):
+    """Each FakeLayer adds (index + 1) to a hidden state seeded with the last
+    token id, so the captured value pins WHICH block's output was recorded --
+    not merely that something was recorded."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    first = next(iter(engine.generate([1], GenParams(max_tokens=1, hidden_layers=(0, 2)))))
+    # seed 1.0 -> +1 (layer 0) = 2.0 -> +2 = 4.0 -> +3 (layer 2) = 7.0
+    assert float(first.hidden[0][0].item()) == 2.0
+    assert float(first.hidden[2][0].item()) == 7.0
+
+
+def test_layer_list_is_restored_after_capture(fake_layered_model, fake_tokenizer):
+    """A leaked wrapper would silently tap every later generation."""
+    originals = list(fake_layered_model.layers)
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    list(engine.generate([1], GenParams(max_tokens=2, hidden_layers=(0, 1, 2))))
+    assert fake_layered_model.layers == originals

@@ -13,7 +13,7 @@ import mlx.core as mx
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
-from workbench.engine.taps import top_k_logprobs
+from workbench.engine.taps import capture_layer_outputs, top_k_logprobs
 
 
 @dataclass
@@ -21,6 +21,9 @@ class GenParams:
     max_tokens: int = 512
     temperature: float = 0.0
     top_k_logprobs: int = 0
+    # Transformer block indices whose output hidden state should be captured.
+    # Empty (the default) leaves the forward pass completely untouched.
+    hidden_layers: tuple[int, ...] = ()
 
 
 @dataclass
@@ -28,6 +31,8 @@ class TokenEvent:
     token_id: int
     text: str
     top_logprobs: dict[int, float] = field(default_factory=dict)
+    # layer index -> hidden state [d_model] leaving that block for this token.
+    hidden: dict[int, "mx.array"] = field(default_factory=dict)
     finish_reason: str | None = None
 
 
@@ -50,6 +55,8 @@ class Engine:
         # this right after generation starts to report prompt/cache stats
         # over the wire (workbench/server/app.py's gen_stats message).
         self.last_cache_reuse: int = 0
+        # Hidden states captured by the most recent _forward, if requested.
+        self._last_hidden: dict[int, mx.array] = {}
 
     # -- cache-owning API -----------------
 
@@ -169,12 +176,21 @@ class Engine:
 
     # -- shared loop -----------------------------------------------------
 
-    def _forward(self, tokens: list[int], cache) -> mx.array:
-        """Run the model over `tokens`, return last-position logits [1, V]."""
-        logits = self.model(mx.array(tokens)[None], cache=cache)
+    def _forward(self, tokens: list[int], cache, hidden_layers: tuple[int, ...] = ()) -> mx.array:
+        """Run the model over `tokens`, return last-position logits [1, V].
+
+        When `hidden_layers` is non-empty the hidden state leaving each of those
+        blocks is recorded into `self._last_hidden` for this pass."""
+        if not hidden_layers:
+            self._last_hidden = {}
+            logits = self.model(mx.array(tokens)[None], cache=cache)
+            return logits[:, -1, :]
+        with capture_layer_outputs(self.model, hidden_layers) as captured:
+            logits = self.model(mx.array(tokens)[None], cache=cache)
+            self._last_hidden = dict(captured)
         return logits[:, -1, :]
 
-    def _prefill(self, tokens: list[int], cache) -> mx.array:
+    def _prefill(self, tokens: list[int], cache, hidden_layers: tuple[int, ...] = ()) -> mx.array:
         """Prefill `tokens` into `cache`, returning next-token logits.
 
         Mirrors mlx-lm's generate_step exactly: all but the LAST token are
@@ -201,7 +217,7 @@ class Engine:
             mx.eval([c.state for c in cache])
             mx.clear_cache()
             pos = end
-        return self._forward(tokens[pos:], cache)
+        return self._forward(tokens[pos:], cache, hidden_layers)
 
     def _sample(self, logits: mx.array, params: GenParams) -> int:
         if params.temperature == 0.0:
@@ -221,7 +237,7 @@ class Engine:
         detok.reset()
 
         try:
-            logits = self._prefill(tokens_to_prefill, cache)  # prefill
+            logits = self._prefill(tokens_to_prefill, cache, params.hidden_layers)  # prefill
         except Exception:
             # A chunked prefill (see _prefill) may have already fed some
             # chunks into the cache before raising -- the cache can be
@@ -257,6 +273,8 @@ class Engine:
             token = self._sample(logits, params)
             generated.append(token)
 
+            # Snapshot now: the trailing _forward for the NEXT token overwrites it.
+            hidden = self._last_hidden
             top = {}
             if params.top_k_logprobs > 0:
                 top = top_k_logprobs(logits, params.top_k_logprobs)
@@ -272,6 +290,7 @@ class Engine:
                     token_id=token,
                     text="",
                     top_logprobs=top,
+                    hidden=hidden,
                     finish_reason="stop",
                 )
                 return
@@ -297,7 +316,7 @@ class Engine:
             # exactly as before: for any consumer that fully drains the
             # generator this is a pure reorder, not a behavior change --
             # the same forward calls happen in the same sequence.
-            next_logits = self._forward([token], cache)
+            next_logits = self._forward([token], cache, params.hidden_layers)
             if track:
                 self._cached_tokens.append(token)
 
@@ -305,6 +324,7 @@ class Engine:
                 token_id=token,
                 text=text,
                 top_logprobs=top,
+                hidden=hidden,
                 finish_reason="length" if is_last else None,
             )
             logits = next_logits
