@@ -14,6 +14,7 @@ type Props = {
   onRequestContext: () => void;
   inspection: LayerInspection[] | null;
   onInspect: () => void;
+  onRewind: () => void;
   onPreviewEdit: (segmentId: string, newText: string) => void;
   onApplyEdit: (segmentId: string, newText: string) => void;
 };
@@ -54,6 +55,7 @@ export default function ContextPanel({
   onRequestContext,
   inspection,
   onInspect,
+  onRewind,
   onPreviewEdit,
   onApplyEdit,
 }: Props) {
@@ -161,8 +163,17 @@ export default function ContextPanel({
         )}
         <div className={styles.header}>
           <span className={styles.title}>Context</span>
-          {/* onInspect is wrapped: handing the handler straight to onClick
-              would pass React's click event in as `layers`. */}
+          <button
+            type="button"
+            className={styles.measureBtn}
+            onClick={() => onRewind()}
+            disabled={streaming}
+            title="Undo the last event by replaying the log to the previous point; the cache is trimmed to match"
+          >
+            Undo
+          </button>
+          {/* Handlers are wrapped: passing them straight to onClick would
+              send React's click event as the first argument. */}
           <button
             type="button"
             className={styles.measureBtn}

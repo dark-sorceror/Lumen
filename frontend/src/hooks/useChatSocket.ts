@@ -604,6 +604,15 @@ export function useChatSocket() {
     ws.send(JSON.stringify({ type: "get_context" }));
   }, []);
 
+  const rewind = useCallback((toEvent?: number) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Same shape-guard as inspect: wiring this to an onClick would otherwise
+    // send a React event as `to_event`.
+    const valid = Number.isInteger(toEvent) && (toEvent as number) >= 0;
+    ws.send(JSON.stringify({ type: "rewind", ...(valid ? { to_event: toEvent } : {}) }));
+  }, []);
+
   const inspect = useCallback((layers?: number[]) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -659,6 +668,7 @@ export function useChatSocket() {
     cacheImpact,
     editError,
     getContext,
+    rewind,
     inspect,
     inspection,
     previewEdit,

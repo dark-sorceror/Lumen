@@ -783,6 +783,33 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 payload.append({"layer": layer, "lens": lens, "attention_mass": mass})
             await ws.send_json(protocol.inspection_msg(payload))
 
+        async def handle_rewind(msg: dict) -> None:
+            """Undo by replaying the event log to an earlier point.
+
+            Priced and trimmed exactly like a forward edit: the KV entries
+            after the divergence point were computed against text that no
+            longer exists, so they have to go either way."""
+            target = msg.get("to_event")
+            if target is None:
+                target = max(0, len(ctx.events) - 1)   # plain undo
+            if target > len(ctx.events):
+                await _reject(f"cannot rewind past the end of the log "
+                              f"({target} > {len(ctx.events)})")
+                return
+            try:
+                impact = manager.apply_rewind(int(target))
+            except (KeyError, ValueError, IndexError, TypeError, PermissionError) as e:
+                await _reject(f"{type(e).__name__}: {e}")
+                return
+
+            def _trim(n: int):
+                with gen_lock:
+                    engine.trim_to(n)
+            await loop.run_in_executor(None, _trim, impact.first_invalid_token)
+            await ws.send_json(protocol.cache_impact_msg(impact, preview=False))
+            await ws.send_json(
+                protocol.context_msg(ctx, costs=manager.edit_cost_map()))
+
         async def handle_edit(msg: dict) -> None:
             event_dict = msg["event"]
             if event_dict["actor"] != "user":
@@ -845,6 +872,11 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 elif msg["type"] == "get_context":
                     await ws.send_json(
                         protocol.context_msg(ctx, costs=manager.edit_cost_map()))
+                elif msg["type"] == "rewind":
+                    if generating:
+                        await _reject("generation in progress; pause or wait")
+                        continue
+                    await handle_rewind(msg)
                 elif msg["type"] == "inspect":
                     if generating:
                         await _reject("generation in progress; pause or wait")

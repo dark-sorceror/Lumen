@@ -1521,3 +1521,55 @@ def test_inspect_measures_the_live_context_tokens():
     tokens, layers, _ = engine.inspected[-1]
     assert tokens, "inspect should be handed the assembled context tokens"
     assert layers, "inspect should default to a spread of layers"
+
+
+# ------------------------------------------------------------------- Rewind
+
+def _fetch_context(ws):
+    ws.send_json({"type": "get_context"})
+    return drain_until(ws, "context")
+
+
+@pytest.mark.timeout(10)
+def test_rewind_undoes_the_last_event_and_trims_the_cache():
+    engine = ScriptedEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+        before = _fetch_context(ws)
+
+        ws.send_json({"type": "rewind"})
+        impact = drain_until(ws, "cache_impact")
+        after = drain_until(ws, "context")
+
+    assert len(after["segments"]) == len(before["segments"]) - 1
+    # the engine's KV must be trimmed to where the context diverged
+    assert engine.trims and engine.trims[-1] == impact["first_invalid_token"]
+
+
+@pytest.mark.timeout(10)
+def test_rewind_to_an_explicit_event_drops_everything_after_it():
+    engine = ScriptedEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+        _fetch_context(ws)
+
+        ws.send_json({"type": "rewind", "to_event": 1})
+        drain_until(ws, "cache_impact")
+        after = drain_until(ws, "context")
+
+    assert len(after["segments"]) == 1
+
+
+@pytest.mark.timeout(10)
+def test_rewind_is_refused_while_generating():
+    with make_client(LiveEngine()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        expect_gen_stats(ws)
+        assert ws.receive_json()["type"] == "token"
+        ws.send_json({"type": "rewind"})
+        msg = drain_until(ws, "edit_rejected")
+        assert "generation in progress" in msg["message"]
+        ws.send_json({"type": "abort"})
+        drain_until(ws, "done")

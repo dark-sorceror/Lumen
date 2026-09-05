@@ -23,6 +23,7 @@ export default function Home() {
     cacheImpact,
     editError,
     getContext,
+    rewind,
     inspect,
     inspection,
     previewEdit,
@@ -231,6 +232,7 @@ export default function Home() {
           onRequestContext={getContext}
           inspection={inspection}
           onInspect={inspect}
+          onRewind={rewind}
           onPreviewEdit={previewEdit}
           onApplyEdit={applyEdit}
         />

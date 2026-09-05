@@ -7,7 +7,7 @@ from workbench.context.manager import CacheImpact
 from workbench.context.model import ContextObject
 from workbench.engine.engine import TokenEvent
 
-CLIENT_TYPES = {"user_message", "pause", "resume", "abort", "inspect",
+CLIENT_TYPES = {"user_message", "pause", "resume", "abort", "inspect", "rewind",
                 "get_context", "preview_edit", "apply_edit"}
 
 _EVENT_FIELDS = {"op": str, "segment_id": str, "payload": dict, "actor": str}
@@ -49,6 +49,12 @@ def parse_client_msg(raw: str) -> dict:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
                 raise ValueError(
                     "user_message.attachment_ids must be a list of strings")
+    if msg["type"] == "rewind" and "to_event" in msg:
+        target = msg["to_event"]
+        # bool is an int subclass; reject it explicitly rather than silently
+        # rewinding to event 0/1.
+        if isinstance(target, bool) or not isinstance(target, int) or target < 0:
+            raise ValueError("rewind.to_event must be a non-negative integer")
     if msg["type"] == "inspect" and "layers" in msg:
         layers = msg["layers"]
         if not isinstance(layers, list) or not all(isinstance(i, int) for i in layers):

@@ -252,3 +252,24 @@ def test_context_msg_omits_edit_cost_when_not_supplied():
     ctx.apply(EditEvent(op="append", segment_id="s0",
                         payload={"segment": asdict(seg)}, actor="user"))
     assert "edit_cost" not in context_msg(ctx)["segments"][0]
+
+
+# -- Rewind: undo, over the wire --------------------------------------------
+
+def test_parse_rewind_with_explicit_target():
+    msg = parse_client_msg('{"type": "rewind", "to_event": 3}')
+    assert msg["to_event"] == 3
+
+
+def test_parse_rewind_without_target_means_undo_one():
+    assert "to_event" not in parse_client_msg('{"type": "rewind"}')
+
+
+def test_parse_rewind_rejects_a_non_integer_target():
+    with pytest.raises(ValueError):
+        parse_client_msg('{"type": "rewind", "to_event": "two"}')
+
+
+def test_parse_rewind_rejects_a_negative_target():
+    with pytest.raises(ValueError):
+        parse_client_msg('{"type": "rewind", "to_event": -1}')
