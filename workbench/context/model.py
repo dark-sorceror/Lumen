@@ -135,6 +135,16 @@ class ContextObject:
         self.segments = rebuilt.segments
         self.events = rebuilt.events
 
+    def fork_at(self, n_events: int) -> "ContextObject":
+        """An independent context replayed from the first `n_events` of this log.
+
+        Branching is cheap for the same reason undo is: the log is small and
+        replay is exact, so there is nothing to snapshot. Because the branch
+        shares a token prefix with its parent, the engine's existing
+        common-prefix cache reuse makes switching between them cheap too --
+        only the diverging tail re-prefills."""
+        return ContextObject.replay(self.events[:n_events])
+
     def to_json(self) -> str:
         return json.dumps({"events": [asdict(e) for e in self.events]})
 

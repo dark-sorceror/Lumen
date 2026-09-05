@@ -222,3 +222,32 @@ def test_rewind_past_the_start_empties_the_context():
     ctx.rewind_to(0)
     assert ctx.segments == []
     assert ctx.events == []
+
+
+# -- Fork: branch a context without copying its state ------------------------
+
+def test_fork_produces_an_independent_context_sharing_the_prefix():
+    ctx = _ctx_with_two_segments()
+    branch = ctx.fork_at(1)
+
+    assert [s.id for s in branch.segments] == ["s0"]
+
+    extra = Segment(id="b0", kind=SegmentKind.USER_MSG, text="branch only",
+                    provenance="user")
+    branch.apply(append_event(extra, actor="user"))
+
+    # the branch moved; the original did not
+    assert [s.id for s in branch.segments] == ["s0", "b0"]
+    assert [s.id for s in ctx.segments] == ["s0", "s1"]
+
+
+def test_fork_does_not_alias_the_parent_s_segments():
+    """A shallow copy would let an edit on one branch rewrite the other."""
+    ctx = _ctx_with_two_segments()
+    branch = ctx.fork_at(2)
+
+    branch.apply(EditEvent(op="replace_text", segment_id="s1",
+                           payload={"text": "changed"}, actor="user"))
+
+    assert branch.segments[1].text == "changed"
+    assert ctx.segments[1].text == "text1"

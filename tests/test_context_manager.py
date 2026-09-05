@@ -90,3 +90,16 @@ def test_preview_rewind_does_not_mutate_the_context(fake_tokenizer):
 
     assert ctx.events == before
     assert mgr.to_tokens().tokens == [1, 2, 3, 4]
+
+
+def test_impact_of_prices_switching_to_another_context(fake_tokenizer):
+    """Switching branches is an edit like any other: the shared prefix stays
+    in the KV cache, everything after it re-prefills."""
+    ctx = build_ctx(["1 2", "3 4"])
+    mgr = ContextManager(ctx, fake_tokenizer)
+    branch = build_ctx(["1 2", "9 9"])
+
+    impact = mgr.impact_of(branch)
+
+    assert impact.first_invalid_token == 2
+    assert impact.tokens_to_reprefill == 2

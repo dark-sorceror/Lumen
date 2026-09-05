@@ -49,6 +49,11 @@ class ContextManager:
         return CacheImpact(first_invalid_token=keep,
                            tokens_to_reprefill=len(new) - keep)
 
+    def impact_of(self, other: ContextObject) -> CacheImpact:
+        """What switching this session to `other` would cost -- the public form
+        of the same common-prefix comparison every edit is priced with."""
+        return self._impact_against(other)
+
     def preview_edit(self, event: EditEvent) -> CacheImpact:
         trial = copy.deepcopy(self.ctx)
         trial.apply(event)
