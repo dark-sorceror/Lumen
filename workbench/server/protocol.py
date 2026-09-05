@@ -8,6 +8,7 @@ from workbench.context.model import ContextObject
 from workbench.engine.engine import TokenEvent
 
 CLIENT_TYPES = {"user_message", "pause", "resume", "abort", "inspect", "rewind",
+                "derive_steering", "clear_steering",
                 "get_context", "preview_edit", "apply_edit"}
 
 _EVENT_FIELDS = {"op": str, "segment_id": str, "payload": dict, "actor": str}
@@ -49,6 +50,17 @@ def parse_client_msg(raw: str) -> dict:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
                 raise ValueError(
                     "user_message.attachment_ids must be a list of strings")
+    if msg["type"] == "derive_steering":
+        for side in ("positive", "negative"):
+            prompts = msg.get(side)
+            if (not isinstance(prompts, list) or not prompts
+                    or not all(isinstance(p, str) for p in prompts)):
+                raise ValueError(
+                    f"derive_steering.{side} must be a non-empty list of strings")
+        if not isinstance(msg.get("layer"), int) or isinstance(msg.get("layer"), bool):
+            raise ValueError("derive_steering.layer must be an integer")
+        if not isinstance(msg.get("strength"), (int, float)) or isinstance(msg.get("strength"), bool):
+            raise ValueError("derive_steering.strength must be a number")
     if msg["type"] == "rewind" and "to_event" in msg:
         target = msg["to_event"]
         # bool is an int subclass; reject it explicitly rather than silently
@@ -167,3 +179,20 @@ def inspection_msg(layers: list[dict]) -> dict:
     attention actually went, aggregated to context SEGMENTS rather than raw
     token positions -- segments being the unit the client can edit."""
     return {"type": "inspection", "layers": layers}
+
+
+def config_msg(cfg) -> dict:
+    """The active configuration, summarised.
+
+    Deliberately omits the direction itself: a d_model-length vector is not
+    something to push over the socket on every state change, and the client
+    only needs to know a direction EXISTS, where it acts, and how hard."""
+    return {
+        "type": "config",
+        "name": cfg.name,
+        "steering": [
+            {"layer": s.layer, "strength": s.strength,
+             "label": s.label, "dim": len(s.vector)}
+            for s in cfg.steering
+        ],
+    }

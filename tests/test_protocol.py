@@ -1,11 +1,14 @@
 from workbench.server.protocol import tool_call_msg, tool_result_msg
+import json
 from dataclasses import asdict
 import pytest
 
 from workbench.context.manager import CacheImpact
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.engine import TokenEvent
+from workbench.config import SteeringSpec, TaskConfig
 from workbench.server.protocol import (
+    config_msg,
     inspection_msg,cache_impact_msg, context_msg, done_msg,
                                        edit_rejected_msg, parse_client_msg, token_msg,
                                        )
@@ -254,8 +257,6 @@ def test_context_msg_omits_edit_cost_when_not_supplied():
     assert "edit_cost" not in context_msg(ctx)["segments"][0]
 
 
-# -- Rewind: undo, over the wire --------------------------------------------
-
 def test_parse_rewind_with_explicit_target():
     msg = parse_client_msg('{"type": "rewind", "to_event": 3}')
     assert msg["to_event"] == 3
@@ -273,3 +274,38 @@ def test_parse_rewind_rejects_a_non_integer_target():
 def test_parse_rewind_rejects_a_negative_target():
     with pytest.raises(ValueError):
         parse_client_msg('{"type": "rewind", "to_event": -1}')
+
+
+def test_parse_derive_steering():
+    msg = parse_client_msg(json.dumps({
+        "type": "derive_steering", "positive": ["a"], "negative": ["b"],
+        "layer": 18, "strength": 0.15}))
+    assert msg["layer"] == 18
+
+
+def test_parse_derive_steering_requires_both_sides():
+    with pytest.raises(ValueError):
+        parse_client_msg(json.dumps({"type": "derive_steering",
+                                     "positive": ["a"], "negative": [],
+                                     "layer": 1, "strength": 0.1}))
+
+
+def test_parse_derive_steering_rejects_non_string_prompts():
+    with pytest.raises(ValueError):
+        parse_client_msg(json.dumps({"type": "derive_steering",
+                                     "positive": [3], "negative": ["b"],
+                                     "layer": 1, "strength": 0.1}))
+
+
+def test_config_msg_summarises_without_shipping_the_vector():
+    """A d_model-length direction is not something to push over a socket on
+    every state change; the client needs the shape, not the numbers."""
+    cfg = TaskConfig(name="tone", steering=[
+        SteeringSpec(layer=18, vector=[0.1] * 8, strength=0.15, label="warm")])
+
+    m = config_msg(cfg)
+
+    assert m["type"] == "config"
+    assert m["name"] == "tone"
+    entry = m["steering"][0]
+    assert entry == {"layer": 18, "strength": 0.15, "label": "warm", "dim": 8}

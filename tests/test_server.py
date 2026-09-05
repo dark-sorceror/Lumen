@@ -1573,3 +1573,72 @@ def test_rewind_is_refused_while_generating():
         assert "generation in progress" in msg["message"]
         ws.send_json({"type": "abort"})
         drain_until(ws, "done")
+
+
+# --------------------------------------------------------- Steering config
+
+class SteerableEngine(ScriptedEngine):
+    """Records the steering it was asked to generate under."""
+
+    def __init__(self):
+        super().__init__()
+        self.steering_seen: list[dict] = []
+        self.derived: list[tuple] = []
+
+    def generate_with_cache(self, full_tokens, params, control=None):
+        self.steering_seen.append(dict(getattr(params, "steering", {}) or {}))
+        yield from super().generate_with_cache(full_tokens, params, control)
+
+    def steering_vector(self, positive, negative, layer):
+        import mlx.core as mx
+        self.derived.append((list(positive), list(negative), layer))
+        return mx.array([3.0, 4.0])          # norm 5 -> unit is (0.6, 0.8)
+
+
+@pytest.mark.timeout(10)
+def test_derive_steering_reports_the_active_configuration():
+    engine = SteerableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["good"],
+                      "negative": ["bad"], "layer": 2, "strength": 0.5,
+                      "label": "tone"})
+        msg = drain_until(ws, "config")
+
+    assert msg["steering"] == [
+        {"layer": 2, "strength": 0.5, "label": "tone", "dim": 2}]
+    assert engine.derived and engine.derived[0][2] == 2
+
+
+@pytest.mark.timeout(10)
+def test_derived_steering_is_applied_to_the_next_generation():
+    engine = SteerableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["good"],
+                      "negative": ["bad"], "layer": 2, "strength": 0.5})
+        drain_until(ws, "config")
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+
+    assert engine.steering_seen, "generation should have been asked to steer"
+    seen = engine.steering_seen[-1]
+    assert set(seen) == {2}
+    vector, strength = seen[2]
+    assert strength == pytest.approx(0.5)
+    # stored as a unit direction, so strength alone controls magnitude
+    assert float((vector[0] ** 2 + vector[1] ** 2) ** 0.5) == pytest.approx(1.0, abs=1e-5)
+
+
+@pytest.mark.timeout(10)
+def test_clear_steering_empties_the_configuration():
+    engine = SteerableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["good"],
+                      "negative": ["bad"], "layer": 2, "strength": 0.5})
+        drain_until(ws, "config")
+        ws.send_json({"type": "clear_steering"})
+        msg = drain_until(ws, "config")
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+
+    assert msg["steering"] == []
+    assert engine.steering_seen[-1] == {}

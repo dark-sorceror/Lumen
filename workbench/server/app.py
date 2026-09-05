@@ -28,6 +28,9 @@ from workbench.context.manager import ContextManager
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.control import Control, ControlQueue
 from workbench.engine.engine import GenParams
+import mlx.core as mx
+
+from workbench.config import SteeringSpec, TaskConfig
 from workbench.engine.taps import attention_mass_by_segment, layer_count
 from workbench.server import protocol
 from workbench.server.framing import frame_message, frame_tool_result, generation_prompt_segment
@@ -564,7 +567,8 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                                     # before the answer even starts. 4096
                                     # gives room for reasoning + a
                                     # substantial reply.
-                                    GenParams(top_k_logprobs=top_k_logprobs, max_tokens=4096),
+                                    GenParams(top_k_logprobs=top_k_logprobs, max_tokens=4096,
+                                              steering=active_config.as_steering()),
                                     control=control):
                                 loop.call_soon_threadsafe(q.put_nowait, event)
                     finally:
@@ -783,6 +787,35 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 payload.append({"layer": layer, "lens": lens, "attention_mass": mass})
             await ws.send_json(protocol.inspection_msg(payload))
 
+        async def handle_derive_steering(msg: dict) -> None:
+            """Derive a direction from contrastive prompts and keep it active.
+
+            Derivation runs server-side because it needs the model, and the
+            direction never crosses the wire: a d_model-length vector is not
+            useful to the client, only the fact that one exists."""
+            def _derive():
+                with gen_lock:
+                    return engine.steering_vector(
+                        [tokenizer.encode(p) for p in msg["positive"]],
+                        [tokenizer.encode(p) for p in msg["negative"]],
+                        layer=msg["layer"])
+            try:
+                vector = await loop.run_in_executor(None, _derive)
+            except Exception as e:                     # model/layer errors
+                await _reject(f"{type(e).__name__}: {e}")
+                return
+            # Store a UNIT direction so `strength` alone controls magnitude --
+            # otherwise the scale of the contrast set silently sets the dose.
+            norm = float(mx.linalg.norm(vector).item())
+            if norm > 0:
+                vector = vector / norm
+            active_config.steering = [
+                s for s in active_config.steering if s.layer != msg["layer"]
+            ] + [SteeringSpec.from_vector(layer=msg["layer"], vector=vector,
+                                          strength=float(msg["strength"]),
+                                          label=msg.get("label", ""))]
+            await ws.send_json(protocol.config_msg(active_config))
+
         async def handle_rewind(msg: dict) -> None:
             """Undo by replaying the event log to an earlier point.
 
@@ -840,6 +873,7 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 await ws.send_json(
                     protocol.context_msg(ctx, costs=manager.edit_cost_map()))
 
+        active_config = TaskConfig(name="session")
         gen_task: asyncio.Task | None = None
         control = ControlQueue()
         try:
@@ -872,6 +906,14 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 elif msg["type"] == "get_context":
                     await ws.send_json(
                         protocol.context_msg(ctx, costs=manager.edit_cost_map()))
+                elif msg["type"] == "derive_steering":
+                    if generating:
+                        await _reject("generation in progress; pause or wait")
+                        continue
+                    await handle_derive_steering(msg)
+                elif msg["type"] == "clear_steering":
+                    active_config.steering = []
+                    await ws.send_json(protocol.config_msg(active_config))
                 elif msg["type"] == "rewind":
                     if generating:
                         await _reject("generation in progress; pause or wait")
