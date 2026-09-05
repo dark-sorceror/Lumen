@@ -116,8 +116,8 @@ def error_msg(message: str) -> dict:
     return {"type": "error", "message": message}
 
 
-def segment_msg(seg) -> dict:
-    return {
+def segment_msg(seg, cost: CacheImpact | None = None) -> dict:
+    msg = {
         "id": seg.id,
         "kind": seg.kind.value,
         "text": seg.text,
@@ -125,10 +125,18 @@ def segment_msg(seg) -> dict:
         "editable_by": seg.editable_by.value,
         "provenance": seg.provenance,
     }
+    if cost is not None:
+        # What rewriting THIS segment would cost, so the client can show the
+        # price before the user commits to paying it.
+        msg["edit_cost"] = {"first_invalid_token": cost.first_invalid_token,
+                            "tokens_to_reprefill": cost.tokens_to_reprefill}
+    return msg
 
 
-def context_msg(ctx: ContextObject) -> dict:
-    return {"type": "context", "segments": [segment_msg(s) for s in ctx.segments]}
+def context_msg(ctx: ContextObject, costs: dict | None = None) -> dict:
+    costs = costs or {}
+    return {"type": "context",
+            "segments": [segment_msg(s, costs.get(s.id)) for s in ctx.segments]}
 
 
 def cache_impact_msg(impact: CacheImpact, preview: bool) -> dict:

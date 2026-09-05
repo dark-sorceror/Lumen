@@ -233,6 +233,17 @@ export default function ContextPanel({
                         {KIND_LABEL[seg.kind]}
                       </span>
                       <span className={styles.provenance}>{seg.provenance}</span>
+                      {seg.edit_cost && (
+                        <span
+                          className={styles.cost}
+                          title={`Rewriting this segment invalidates the cache from token ${seg.edit_cost.first_invalid_token}, re-prefilling ${seg.edit_cost.tokens_to_reprefill} tokens`}
+                        >
+                          &#8635;{" "}
+                          {seg.edit_cost.tokens_to_reprefill >= 1000
+                            ? `${(seg.edit_cost.tokens_to_reprefill / 1000).toFixed(1)}k`
+                            : seg.edit_cost.tokens_to_reprefill}
+                        </span>
+                      )}
                       {massFor(seg.id) !== null && (
                         <span
                           className={styles.mass}

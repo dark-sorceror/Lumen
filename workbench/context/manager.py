@@ -79,3 +79,19 @@ class ContextManager:
         impact = self.preview_rewind(n_events)
         self.ctx.rewind_to(n_events)
         return impact
+
+    def edit_cost_map(self) -> dict[str, CacheImpact]:
+        """What editing each segment would cost, for the whole context at once.
+
+        Rewriting a segment changes the token stream from that segment's start,
+        so everything after it must be re-prefilled. The cost therefore depends
+        on WHERE a segment sits, not on how large the edit is -- one word forty
+        turns back is far more expensive than a whole paragraph in the latest
+        turn, which is exactly the intuition a flat chat UI hides."""
+        tokenized = self.to_tokens()
+        total = len(tokenized.tokens)
+        return {
+            segment_id: CacheImpact(first_invalid_token=start,
+                                    tokens_to_reprefill=total - start)
+            for segment_id, (start, _end) in tokenized.spans.items()
+        }

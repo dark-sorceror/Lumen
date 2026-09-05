@@ -810,7 +810,8 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 await loop.run_in_executor(None, _trim, impact.first_invalid_token)
             await ws.send_json(protocol.cache_impact_msg(impact, preview=preview))
             if not preview:
-                await ws.send_json(protocol.context_msg(ctx))
+                await ws.send_json(
+                    protocol.context_msg(ctx, costs=manager.edit_cost_map()))
 
         gen_task: asyncio.Task | None = None
         control = ControlQueue()
@@ -842,7 +843,8 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                         run_generation(control, gen_prompt_seg,
                                        int(msg.get("top_k_logprobs", 0))))
                 elif msg["type"] == "get_context":
-                    await ws.send_json(protocol.context_msg(ctx))
+                    await ws.send_json(
+                        protocol.context_msg(ctx, costs=manager.edit_cost_map()))
                 elif msg["type"] == "inspect":
                     if generating:
                         await _reject("generation in progress; pause or wait")

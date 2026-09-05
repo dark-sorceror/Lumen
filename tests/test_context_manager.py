@@ -103,3 +103,20 @@ def test_impact_of_prices_switching_to_another_context(fake_tokenizer):
 
     assert impact.first_invalid_token == 2
     assert impact.tokens_to_reprefill == 2
+
+
+def test_edit_cost_map_prices_every_segment_from_its_own_start(fake_tokenizer):
+    """Editing a segment invalidates the cache from where that segment begins,
+    so the cost of touching it is everything downstream -- which is why editing
+    far back is expensive regardless of how small the edit is."""
+    ctx = build_ctx(["1 2", "3 4", "5"])
+    mgr = ContextManager(ctx, fake_tokenizer)
+
+    costs = mgr.edit_cost_map()
+
+    assert costs["s0"].first_invalid_token == 0
+    assert costs["s0"].tokens_to_reprefill == 5
+    assert costs["s1"].first_invalid_token == 2
+    assert costs["s1"].tokens_to_reprefill == 3
+    assert costs["s2"].first_invalid_token == 4
+    assert costs["s2"].tokens_to_reprefill == 1

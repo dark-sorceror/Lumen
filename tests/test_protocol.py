@@ -1,4 +1,5 @@
 from workbench.server.protocol import tool_call_msg, tool_result_msg
+from dataclasses import asdict
 import pytest
 
 from workbench.context.manager import CacheImpact
@@ -230,3 +231,24 @@ def test_inspection_msg_carries_lens_and_attention_per_layer():
     assert m["layers"][0]["layer"] == 0
     assert m["layers"][0]["lens"][0]["text"] == " Paris"
     assert m["layers"][0]["attention_mass"][0]["mass"] == 0.81
+
+
+def test_context_msg_carries_per_segment_edit_cost_when_available():
+    ctx = ContextObject()
+    seg = Segment(id="s0", kind=SegmentKind.USER_MSG, text="hi", provenance="user")
+    ctx.apply(EditEvent(op="append", segment_id="s0",
+                        payload={"segment": asdict(seg)}, actor="user"))
+
+    m = context_msg(ctx, costs={"s0": CacheImpact(first_invalid_token=3,
+                                                  tokens_to_reprefill=9)})
+
+    assert m["segments"][0]["edit_cost"] == {"first_invalid_token": 3,
+                                             "tokens_to_reprefill": 9}
+
+
+def test_context_msg_omits_edit_cost_when_not_supplied():
+    ctx = ContextObject()
+    seg = Segment(id="s0", kind=SegmentKind.USER_MSG, text="hi", provenance="user")
+    ctx.apply(EditEvent(op="append", segment_id="s0",
+                        payload={"segment": asdict(seg)}, actor="user"))
+    assert "edit_cost" not in context_msg(ctx)["segments"][0]

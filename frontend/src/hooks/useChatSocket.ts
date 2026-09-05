@@ -150,6 +150,9 @@ export type Segment = {
   emphasis: number;
   editable_by: EditableBy;
   provenance: string;
+  // What rewriting this segment would cost: everything from where it starts
+  // has to be re-prefilled, so position matters far more than edit size.
+  edit_cost?: { first_invalid_token: number; tokens_to_reprefill: number };
 };
 
 export type CacheImpact = {

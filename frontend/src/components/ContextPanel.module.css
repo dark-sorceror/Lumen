@@ -409,3 +409,18 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--muted-foreground);
 }
+
+/* Cost to rewrite this segment: tokens that would have to be re-prefilled.
+   Sits beside the attention badge so "what is this doing" and "what does
+   changing it cost" read together. */
+.cost {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+}
+
+.cost + .mass {
+  margin-left: 0.5rem;
+}
