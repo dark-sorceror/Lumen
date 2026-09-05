@@ -159,3 +159,91 @@ def test_engine_inspect_leaves_the_session_cache_untouched(fake_layered_model, f
     engine.inspect([9, 9, 9], layers=(0,), top_k=1)
 
     assert engine._cached_tokens == before
+
+
+# -- Steering: intervene on the residual stream, not just observe it ---------
+
+def test_apply_steering_shifts_the_layer_output(fake_layered_model, fake_tokenizer):
+    """A steering vector is added to the residual stream leaving a block, so a
+    tap placed outside it records the SHIFTED activation."""
+    from workbench.engine.taps import apply_steering, capture_layer_outputs
+
+    baseline = {}
+    with capture_layer_outputs(fake_layered_model, (0,)) as cap:
+        fake_layered_model(mx.array([[1]]))
+        baseline = {k: v for k, v in cap.items()}
+
+    direction = mx.ones((fake_layered_model.hidden_dim,))
+    with apply_steering(fake_layered_model, {0: (direction, 2.0)}):
+        with capture_layer_outputs(fake_layered_model, (0,)) as steered:
+            fake_layered_model(mx.array([[1]]))
+
+    assert float(steered[0][0].item()) == pytest.approx(
+        float(baseline[0][0].item()) + 2.0)
+
+
+def test_apply_steering_restores_the_layer_stack(fake_layered_model):
+    from workbench.engine.taps import apply_steering
+
+    originals = list(fake_layered_model.layers)
+    with apply_steering(fake_layered_model, {0: (mx.ones((8,)), 1.0)}):
+        pass
+    assert fake_layered_model.layers == originals
+
+
+def test_steering_with_zero_strength_is_a_no_op(fake_layered_model):
+    from workbench.engine.taps import apply_steering, capture_layer_outputs
+
+    with capture_layer_outputs(fake_layered_model, (0,)) as cap:
+        fake_layered_model(mx.array([[1]]))
+        before = float(cap[0][0].item())
+
+    with apply_steering(fake_layered_model, {0: (mx.ones((8,)), 0.0)}):
+        with capture_layer_outputs(fake_layered_model, (0,)) as cap2:
+            fake_layered_model(mx.array([[1]]))
+            after = float(cap2[0][0].item())
+
+    assert after == pytest.approx(before)
+
+
+def test_steering_vector_is_the_contrastive_mean_difference(fake_layered_model, fake_tokenizer):
+    """Classic contrastive construction: mean activation on positive prompts
+    minus mean on negative ones. The fake seeds its hidden state from the last
+    token id, so the arithmetic is checkable."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    v = engine.steering_vector(positive=[[5]], negative=[[1]], layer=0)
+
+    # layer 0 output is last_token + 1 -> 6.0 vs 2.0
+    assert float(v[0].item()) == pytest.approx(4.0)
+
+
+def test_steering_vector_averages_over_multiple_prompts(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    v = engine.steering_vector(positive=[[5], [7]], negative=[[1]], layer=0)
+
+    # mean(6, 8) - 2 = 5
+    assert float(v[0].item()) == pytest.approx(5.0)
+
+
+def test_generation_applies_steering_to_the_residual_stream(fake_layered_model, fake_tokenizer):
+    """Steering has to be live for every forward pass of the loop -- prefill and
+    each decode step -- not just set up once and forgotten."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    plain = list(engine.generate([1], GenParams(max_tokens=1, hidden_layers=(0,))))
+    steered = list(engine.generate(
+        [1], GenParams(max_tokens=1, hidden_layers=(0,),
+                       steering={0: (mx.ones((fake_layered_model.hidden_dim,)), 3.0)})))
+
+    assert float(steered[0].hidden[0][0].item()) == pytest.approx(
+        float(plain[0].hidden[0][0].item()) + 3.0)
+
+
+def test_generation_without_steering_leaves_the_stack_untouched(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    originals = list(fake_layered_model.layers)
+    list(engine.generate([1], GenParams(max_tokens=2,
+                                        steering={0: (mx.ones((8,)), 1.0)})))
+    assert fake_layered_model.layers == originals

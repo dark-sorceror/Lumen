@@ -13,8 +13,8 @@ import mlx.core as mx
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
-from workbench.engine.taps import (capture_attention, capture_layer_outputs,
-                                   logit_lens, top_k_logprobs)
+from workbench.engine.taps import (apply_steering, capture_attention,
+                                   capture_layer_outputs, logit_lens, top_k_logprobs)
 
 
 @dataclass
@@ -25,6 +25,9 @@ class GenParams:
     # Transformer block indices whose output hidden state should be captured.
     # Empty (the default) leaves the forward pass completely untouched.
     hidden_layers: tuple[int, ...] = ()
+    # layer index -> (direction, strength), added to that block's output for
+    # every forward pass of this generation.
+    steering: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -195,6 +198,30 @@ class Engine:
             for layer in layers
         }
 
+    def _mean_activation(self, prompts: list[list[int]], layer: int) -> mx.array:
+        """Average hidden state leaving `layer` across a set of prompts."""
+        total = None
+        for tokens in prompts:
+            cache = make_prompt_cache(self.model)
+            with capture_layer_outputs(self.model, (layer,)) as captured:
+                self.model(mx.array(tokens)[None], cache=cache)
+            h = captured[layer]
+            total = h if total is None else total + h
+        if total is None:
+            raise ValueError("need at least one prompt")
+        return total / len(prompts)
+
+    def steering_vector(self, positive: list[list[int]], negative: list[list[int]],
+                        layer: int) -> mx.array:
+        """A direction in activation space, built by contrast.
+
+        mean(positive) - mean(negative) at `layer`: whatever the two prompt
+        sets differ in, expressed as a vector that can be added back into the
+        residual stream. Minutes to build and nothing is trained -- which is
+        why it is the cheapest intervention worth measuring."""
+        return (self._mean_activation(positive, layer)
+                - self._mean_activation(negative, layer))
+
     # -- shared loop -----------------------------------------------------
 
     def _forward(self, tokens: list[int], cache, hidden_layers: tuple[int, ...] = ()) -> mx.array:
@@ -249,6 +276,15 @@ class Engine:
         return int(mx.random.categorical(scaled).item())
 
     def _run(self, tokens_to_prefill: list[int], params: GenParams, control, track: bool) -> Iterator[TokenEvent]:
+        """Run the loop, with any steering directions installed for its whole
+        duration -- prefill and every decode step alike."""
+        if not params.steering:
+            yield from self._run_loop(tokens_to_prefill, params, control, track)
+            return
+        with apply_steering(self.model, params.steering):
+            yield from self._run_loop(tokens_to_prefill, params, control, track)
+
+    def _run_loop(self, tokens_to_prefill: list[int], params: GenParams, control, track: bool) -> Iterator[TokenEvent]:
         """The shared loop body: prefills `tokens_to_prefill`
         into `self._cache`, then decodes. When `track` is True, both the
         prefilled and generated tokens are recorded into `self._cached_tokens`

@@ -157,3 +157,41 @@ def capture_attention(model, layer_indices):
 def layer_count(model) -> int:
     """How many transformer blocks the model has."""
     return len(_layer_list(model))
+
+
+class _SteeringLayer:
+    """Adds a fixed direction to the residual stream leaving a block."""
+
+    def __init__(self, inner, vector: "mx.array", strength: float):
+        self._inner, self._vector, self._strength = inner, vector, strength
+
+    def __call__(self, *args, **kwargs):
+        out = self._inner(*args, **kwargs)
+        shift = self._strength * self._vector
+        if isinstance(out, tuple):
+            return (out[0] + shift,) + tuple(out[1:])
+        return out + shift
+
+
+@contextmanager
+def apply_steering(model, steering: dict):
+    """Steer generation by adding directions to chosen blocks' outputs.
+
+    `steering` maps a layer index to (vector, strength). The vector is added to
+    every token position of that block's output, which is where contrastive
+    activation steering operates -- the residual stream, not the logits, so the
+    effect propagates through every later layer rather than just reweighting
+    the final distribution.
+
+    Composes with the capture taps: wrap steering OUTSIDE a capture to record
+    the un-steered activation, or INSIDE to record the steered one."""
+    layers = _layer_list(model)
+    originals = {i: layers[i] for i in steering}
+    for i, original in originals.items():
+        vector, strength = steering[i]
+        layers[i] = _SteeringLayer(original, vector, strength)
+    try:
+        yield
+    finally:
+        for i, original in originals.items():
+            layers[i] = original
