@@ -181,3 +181,44 @@ def test_server_append_of_framing_ok():
     ctx.apply(_append_evt(s, actor="server"))
     assert ctx.segments[0].provenance == "framing"
     assert ctx.segments[0].editable_by == Editor.NONE
+
+
+# -- Rewind: undo by replaying the log, not by storing snapshots -------------
+
+def _ctx_with_two_segments():
+    ctx = ContextObject()
+    for i in range(2):
+        s = Segment(id=f"s{i}", kind=SegmentKind.USER_MSG, text=f"text{i}",
+                    provenance="user")
+        ctx.apply(append_event(s, actor="user"))
+    return ctx
+
+
+def test_rewind_drops_later_events_and_restores_the_earlier_state():
+    ctx = _ctx_with_two_segments()
+    ctx.apply(EditEvent(op="replace_text", segment_id="s1",
+                        payload={"text": "edited"}, actor="user"))
+    assert ctx.segments[1].text == "edited"
+    n_before_edit = len(ctx.events) - 1
+
+    ctx.rewind_to(n_before_edit)
+
+    assert ctx.segments[1].text == "text1"
+    assert len(ctx.events) == n_before_edit
+
+
+def test_rewind_is_in_place_so_existing_references_stay_valid():
+    """The server and the manager both hold the same ContextObject; rewinding
+    must not hand back a new object they would each have to be told about."""
+    ctx = _ctx_with_two_segments()
+    alias = ctx
+    ctx.rewind_to(1)
+    assert alias is ctx
+    assert len(alias.segments) == 1
+
+
+def test_rewind_past_the_start_empties_the_context():
+    ctx = _ctx_with_two_segments()
+    ctx.rewind_to(0)
+    assert ctx.segments == []
+    assert ctx.events == []

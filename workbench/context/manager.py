@@ -58,3 +58,19 @@ class ContextManager:
         impact = self.preview_edit(event)
         self.ctx.apply(event)
         return impact
+
+    def preview_rewind(self, n_events: int) -> CacheImpact:
+        """What rewinding to `n_events` would cost, without doing it."""
+        trial = copy.deepcopy(self.ctx)
+        trial.rewind_to(n_events)
+        return self._impact_against(trial)
+
+    def apply_rewind(self, n_events: int) -> CacheImpact:
+        """Rewind the context, returning the cache impact.
+
+        Priced exactly like a forward edit: undo is not free, because the KV
+        entries after the divergence point were computed against text that no
+        longer exists."""
+        impact = self.preview_rewind(n_events)
+        self.ctx.rewind_to(n_events)
+        return impact

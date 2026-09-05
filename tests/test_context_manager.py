@@ -61,3 +61,32 @@ def test_append_costs_nothing(fake_tokenizer):
                                         payload={"segment": s.__dict__}, actor="user"))
     assert impact.first_invalid_token == 2
     assert impact.tokens_to_reprefill == 2
+
+
+# -- Rewind: the cache cost of undoing, priced like any other edit -----------
+
+def test_apply_rewind_reports_where_the_cache_goes_invalid(fake_tokenizer):
+    ctx = build_ctx(["1 2", "3 4"])
+    mgr = ContextManager(ctx, fake_tokenizer)
+    mgr.apply_edit(EditEvent(op="replace_text", segment_id="s1",
+                             payload={"text": "7 8"}, actor="user"))
+    assert mgr.to_tokens().tokens == [1, 2, 7, 8]
+    n_before_edit = len(ctx.events) - 1
+
+    impact = mgr.apply_rewind(n_before_edit)
+
+    # "1 2" is unchanged, so the first two tokens survive; the rest re-prefills.
+    assert impact.first_invalid_token == 2
+    assert impact.tokens_to_reprefill == 2
+    assert mgr.to_tokens().tokens == [1, 2, 3, 4]
+
+
+def test_preview_rewind_does_not_mutate_the_context(fake_tokenizer):
+    ctx = build_ctx(["1 2", "3 4"])
+    mgr = ContextManager(ctx, fake_tokenizer)
+    before = list(ctx.events)
+
+    mgr.preview_rewind(1)
+
+    assert ctx.events == before
+    assert mgr.to_tokens().tokens == [1, 2, 3, 4]

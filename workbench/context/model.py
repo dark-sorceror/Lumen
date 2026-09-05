@@ -124,6 +124,17 @@ class ContextObject:
             raise ValueError(f"unknown op: {event.op}")
         self.events.append(event)
 
+    def rewind_to(self, n_events: int) -> None:
+        """Rebuild this context from the first `n_events` of its own log.
+
+        Undo by REPLAY rather than by snapshot: the log is the cheap thing to
+        keep, and rebuilding from it is exact by construction. Mutates in
+        place, because the server and the ContextManager both hold this same
+        object -- handing back a new one would leave one of them stale."""
+        rebuilt = ContextObject.replay(self.events[:n_events])
+        self.segments = rebuilt.segments
+        self.events = rebuilt.events
+
     def to_json(self) -> str:
         return json.dumps({"events": [asdict(e) for e in self.events]})
 
