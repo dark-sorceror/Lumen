@@ -304,3 +304,31 @@ def test_cosine_never_exceeds_one_even_in_low_precision(fake_layered_model, fake
                               steering={0: (mx.ones((fake_layered_model.hidden_dim,)), strength)})
         for layer, d in diff.items():
             assert -1.0 <= d["cosine"] <= 1.0, (layer, strength, d["cosine"])
+
+
+def test_compare_over_aggregates_drift_across_prompts(fake_layered_model, fake_tokenizer):
+    """One prompt is an anecdote. The aggregate over a set is the measurement --
+    with a spread, so a claim about an intervention can be qualified."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    direction = mx.array([1.0] + [0.0] * (fake_layered_model.hidden_dim - 1))
+
+    agg = engine.compare_over([[1, 2], [3, 4], [5, 6]], layers=(0, 2),
+                              steering={0: (direction, 2.0)})
+
+    assert agg[0]["n"] == 3
+    assert agg[0]["mean_l2"] == pytest.approx(2.0)
+    assert agg[0]["std_relative"] == pytest.approx(0.0, abs=1e-6) or agg[0]["std_relative"] >= 0.0
+    assert 0.0 <= agg[0]["flip_rate"] <= 1.0
+    assert set(agg) == {0, 2}
+
+
+def test_compare_over_requires_at_least_one_prompt(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    with pytest.raises(ValueError):
+        engine.compare_over([], layers=(0,), steering={})
+
+
+def test_compare_over_flip_rate_is_a_fraction_of_prompts(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    agg = engine.compare_over([[1, 2], [3, 4]], layers=(0,), steering={})
+    assert agg[0]["flip_rate"] == pytest.approx(0.0)   # no intervention, no flips

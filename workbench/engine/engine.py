@@ -277,6 +277,46 @@ class Engine:
         return (self._mean_activation(positive, layer)
                 - self._mean_activation(negative, layer))
 
+    def compare_over(self, prompts: list[list[int]], layers, steering: dict,
+                     top_k: int = 5) -> dict:
+        """Aggregate `compare` over a set of prompts.
+
+        One prompt is an anecdote: whether a single prediction flipped says
+        little, because it may have been a near-tie the intervention nudged by
+        accident. Over a set, `flip_rate` becomes a rate and `std_relative`
+        says whether the drift was consistent or driven by one outlier -- which
+        is the difference between a demonstration and a measurement."""
+        prompts = list(prompts)
+        if not prompts:
+            raise ValueError("need at least one prompt to compare over")
+        layers = tuple(layers)
+        per_prompt = [self.compare(p, layers, steering, top_k) for p in prompts]
+
+        def _mean(xs):
+            return sum(xs) / len(xs)
+
+        def _std(xs):
+            if len(xs) < 2:
+                return 0.0
+            m = _mean(xs)
+            return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
+
+        out = {}
+        for layer in layers:
+            rel = [d[layer]["relative"] for d in per_prompt]
+            l2 = [d[layer]["l2"] for d in per_prompt]
+            cos = [d[layer]["cosine"] for d in per_prompt]
+            flips = [1.0 if d[layer]["top_token_changed"] else 0.0 for d in per_prompt]
+            out[layer] = {
+                "n": len(per_prompt),
+                "mean_l2": _mean(l2),
+                "mean_relative": _mean(rel),
+                "std_relative": _std(rel),
+                "mean_cosine": _mean(cos),
+                "flip_rate": _mean(flips),
+            }
+        return out
+
     # -- shared loop -----------------------------------------------------
 
     def _forward(self, tokens: list[int], cache, hidden_layers: tuple[int, ...] = ()) -> mx.array:
