@@ -28,9 +28,11 @@ from workbench.context.manager import ContextManager
 from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
 from workbench.engine.control import Control, ControlQueue
 from workbench.engine.engine import GenParams
+import os
+
 import mlx.core as mx
 
-from workbench.config import SteeringSpec, TaskConfig
+from workbench.config import ConfigStore, SteeringSpec, TaskConfig
 from workbench.engine.taps import attention_mass_by_segment, layer_count
 from workbench.server import protocol
 from workbench.server.framing import frame_message, frame_tool_result, generation_prompt_segment
@@ -385,7 +387,12 @@ def _maybe_inject_tools_prompt(ctx: ContextObject, tokenizer,
                            content_actor="server")
 
 
-def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> FastAPI:
+def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None,
+               config_dir=None) -> FastAPI:
+    # Where named task configurations live. Flat files, so `ls` and a text
+    # editor remain valid tools for seeing how a task is configured.
+    config_store = ConfigStore(config_dir
+                               or os.environ.get("WORKBENCH_CONFIG_DIR", "configs"))
     app = FastAPI(title="Lumen")
     # Allow cross-origin `fetch` (the /attachments upload) from any loopback
     # origin. Unlike WebSockets (which aren't subject to CORS -- that's what
@@ -787,6 +794,25 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 payload.append({"layer": layer, "lens": lens, "attention_mass": mass})
             await ws.send_json(protocol.inspection_msg(payload))
 
+        async def handle_config_op(msg: dict) -> None:
+            """Save, load, or list named configurations."""
+            kind = msg["type"]
+            try:
+                if kind == "save_config":
+                    active_config.name = msg["name"]
+                    config_store.save(active_config)
+                    await ws.send_json(protocol.configs_msg(config_store.names()))
+                elif kind == "load_config":
+                    loaded = config_store.load(msg["name"])
+                    # Mutate in place: the generation path closes over this object.
+                    active_config.name = loaded.name
+                    active_config.steering = loaded.steering
+                    await ws.send_json(protocol.config_msg(active_config))
+                else:
+                    await ws.send_json(protocol.configs_msg(config_store.names()))
+            except (ValueError, FileNotFoundError, OSError) as e:
+                await _reject(str(e))
+
         async def handle_derive_steering(msg: dict) -> None:
             """Derive a direction from contrastive prompts and keep it active.
 
@@ -911,6 +937,8 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
                 elif msg["type"] == "get_context":
                     await ws.send_json(
                         protocol.context_msg(ctx, costs=manager.edit_cost_map()))
+                elif msg["type"] in ("save_config", "load_config", "list_configs"):
+                    await handle_config_op(msg)
                 elif msg["type"] == "derive_steering":
                     if generating:
                         await _reject("generation in progress; pause or wait")

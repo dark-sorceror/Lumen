@@ -95,9 +95,10 @@ class LiveEngine:
         self.trims.append(n)
 
 
-def make_client(engine, tool_registry=None):
+def make_client(engine, tool_registry=None, config_dir=None):
     return TestClient(create_app(engine=engine, tokenizer=FakeTokenizer(),
-                                 tool_registry=tool_registry))
+                                 tool_registry=tool_registry,
+                                 config_dir=config_dir))
 
 
 def drain_until(ws, msg_type):
@@ -1659,3 +1660,55 @@ def test_derived_steering_is_stored_as_plain_floats():
         drain_until(ws, "done")
     vector, _ = engine.steering_seen[-1][2]
     assert vector is not None
+
+
+@pytest.mark.timeout(10)
+def test_config_can_be_saved_and_listed(tmp_path):
+    engine = SteerableEngine()
+    with make_client(engine, config_dir=tmp_path).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["a"], "negative": ["b"],
+                      "layer": 2, "strength": 0.5})
+        drain_until(ws, "config")
+        ws.send_json({"type": "save_config", "name": "warm"})
+        saved = drain_until(ws, "configs")
+    assert saved["names"] == ["warm"]
+    assert (tmp_path / "warm.json").is_file()
+
+
+@pytest.mark.timeout(10)
+def test_loading_a_config_applies_its_steering_to_generation(tmp_path):
+    engine = SteerableEngine()
+    client = make_client(engine, config_dir=tmp_path)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["a"], "negative": ["b"],
+                      "layer": 2, "strength": 0.75})
+        drain_until(ws, "config")
+        ws.send_json({"type": "save_config", "name": "warm"})
+        drain_until(ws, "configs")
+
+    # a FRESH connection starts with no steering until the config is loaded
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "load_config", "name": "warm"})
+        cfg = drain_until(ws, "config")
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+
+    assert cfg["steering"][0]["strength"] == pytest.approx(0.75)
+    _, strength = engine.steering_seen[-1][2]
+    assert strength == pytest.approx(0.75)
+
+
+@pytest.mark.timeout(10)
+def test_loading_a_missing_config_is_rejected(tmp_path):
+    with make_client(SteerableEngine(), config_dir=tmp_path).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "load_config", "name": "nope"})
+        msg = drain_until(ws, "edit_rejected")
+    assert "nope" in msg["message"]
+
+
+@pytest.mark.timeout(10)
+def test_saving_under_an_unsafe_name_is_rejected(tmp_path):
+    with make_client(SteerableEngine(), config_dir=tmp_path).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "save_config", "name": "../escape"})
+        msg = drain_until(ws, "edit_rejected")
+    assert "name" in msg["message"].lower()

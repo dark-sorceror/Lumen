@@ -56,3 +56,55 @@ def test_spec_from_a_derived_vector_keeps_the_values():
     spec = SteeringSpec.from_vector(layer=7, vector=v, strength=0.3, label="lbl")
     assert spec.vector == [1.5, -2.5]
     assert spec.layer == 7
+
+
+# -- Named storage -----------------------------------------------------------
+
+def test_store_saves_and_loads_by_name(tmp_path):
+    from workbench.config import ConfigStore
+
+    store = ConfigStore(tmp_path)
+    store.save(TaskConfig(name="warm",
+                          steering=[SteeringSpec(layer=4, vector=[1.0], strength=2.0)]))
+
+    loaded = store.load("warm")
+
+    assert loaded.name == "warm"
+    assert loaded.steering[0].layer == 4
+
+
+def test_store_lists_saved_names_sorted(tmp_path):
+    from workbench.config import ConfigStore
+
+    store = ConfigStore(tmp_path)
+    for n in ("zeta", "alpha", "mid"):
+        store.save(TaskConfig(name=n))
+
+    assert store.names() == ["alpha", "mid", "zeta"]
+
+
+def test_store_rejects_path_traversal(tmp_path):
+    """Names arrive over the wire; a name must never escape the store root."""
+    from workbench.config import ConfigStore
+
+    store = ConfigStore(tmp_path)
+    for bad in ("../escape", "a/b", "..", "", "with space/../x"):
+        with pytest.raises(ValueError):
+            store.save(TaskConfig(name=bad))
+        with pytest.raises(ValueError):
+            store.load(bad)
+
+
+def test_store_load_of_a_missing_name_raises(tmp_path):
+    from workbench.config import ConfigStore
+
+    with pytest.raises(FileNotFoundError):
+        ConfigStore(tmp_path).load("nope")
+
+
+def test_store_creates_its_root_on_demand(tmp_path):
+    from workbench.config import ConfigStore
+
+    root = tmp_path / "nested" / "configs"
+    ConfigStore(root).save(TaskConfig(name="a"))
+    assert (root / "a.json").is_file()

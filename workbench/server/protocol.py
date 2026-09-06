@@ -9,6 +9,7 @@ from workbench.engine.engine import TokenEvent
 
 CLIENT_TYPES = {"user_message", "pause", "resume", "abort", "inspect", "rewind",
                 "derive_steering", "clear_steering",
+                "save_config", "load_config", "list_configs",
                 "get_context", "preview_edit", "apply_edit"}
 
 _EVENT_FIELDS = {"op": str, "segment_id": str, "payload": dict, "actor": str}
@@ -50,6 +51,9 @@ def parse_client_msg(raw: str) -> dict:
             if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
                 raise ValueError(
                     "user_message.attachment_ids must be a list of strings")
+    if msg["type"] in ("save_config", "load_config"):
+        if not isinstance(msg.get("name"), str) or not msg["name"]:
+            raise ValueError(f"{msg['type']}.name must be a non-empty string")
     if msg["type"] == "derive_steering":
         for side in ("positive", "negative"):
             prompts = msg.get(side)
@@ -196,3 +200,8 @@ def config_msg(cfg) -> dict:
             for s in cfg.steering
         ],
     }
+
+
+def configs_msg(names: list[str]) -> dict:
+    """The saved configurations available to load."""
+    return {"type": "configs", "names": list(names)}
