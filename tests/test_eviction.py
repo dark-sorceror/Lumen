@@ -133,3 +133,40 @@ def test_evaluate_eviction_at_full_budget_is_lossless(fake_layered_model, fake_t
         assert result["n_tokens"] == 6, name
         assert result["kl"] == pytest.approx(0.0, abs=1e-5), name
         assert result["top1_agrees"] is True, name
+
+
+def test_pinned_segments_are_charged_against_the_budget_not_added_on_top(
+    fake_layered_model, fake_tokenizer
+):
+    """A pinned segment must be RESERVED before the policy fills, not unioned in
+    afterwards. Unioning lets the result exceed the budget, which makes every
+    policy comparison at that budget meaningless -- the policies would be
+    holding different numbers of tokens for a reason unrelated to their
+    ranking."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    spans = {"a": (0, 2), "b": (2, 4), "q": (4, 6)}
+
+    # Budget 2 fits exactly one segment. Recency alone would take "b" (newest);
+    # pinning "a" must therefore cost "b" its place, not buy a second slot.
+    out = engine.evaluate_eviction([1, 2, 3, 4, 5, 6], spans, budget=2, pinned=("a",))
+
+    for name, result in out.items():
+        assert "a" in result["kept"], name
+        assert result["n_tokens"] <= 2, f"{name} exceeded budget: {result['kept']}"
+
+
+def test_pinned_segments_do_not_compete_in_the_ranking(fake_layered_model, fake_tokenizer):
+    """With the obvious segments handed to every policy for free, the policies
+    must differ only on what is left -- otherwise a comparison 'holding the hand
+    rule fixed' is not actually holding it fixed."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    spans = {"a": (0, 2), "b": (2, 4), "c": (4, 6), "q": (6, 8)}
+
+    out = engine.evaluate_eviction([1, 2, 3, 4, 5, 6, 7, 8], spans, budget=6,
+                                   pinned=("a", "q"))
+
+    for name, result in out.items():
+        assert {"a", "q"} <= result["kept"], name
+        assert result["n_tokens"] <= 6, name
+        # 4 tokens reserved, so exactly one of b/c can still fit.
+        assert len(result["kept"] & {"b", "c"}) == 1, name

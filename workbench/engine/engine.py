@@ -444,14 +444,25 @@ class Engine:
         sane policy evicts and whose removal would swamp every other effect."""
         raw = self.attention_mass(tokens, spans, layers)
         nosink = self.attention_mass(tokens, spans, layers, exclude_sink=True)
+
+        # Pinned segments are RESERVED off the top: removed from the ranking and
+        # their tokens subtracted from the budget, rather than unioned in after
+        # the fill. Unioning afterwards lets the result exceed the budget, and
+        # then the policies are being compared while holding different numbers
+        # of tokens -- which is not a comparison of their rankings at all.
+        pinned = set(pinned) & set(spans)
+        reserved = sum(spans[sid][1] - spans[sid][0] for sid in pinned)
+        contested = {sid: sp for sid, sp in spans.items() if sid not in pinned}
+        room = max(0, budget - reserved)
+
         candidates = {
-            "recency": keep_by_recency(spans, budget),
-            "attention": keep_by_attention(spans, raw, budget),
-            "attention_nosink": keep_by_attention(spans, nosink, budget),
+            "recency": keep_by_recency(contested, room),
+            "attention": keep_by_attention(contested, raw, room),
+            "attention_nosink": keep_by_attention(contested, nosink, room),
         }
         out: dict[str, dict] = {}
         for name, kept in candidates.items():
-            kept = kept | set(pinned)
+            kept = kept | pinned
             pruned = rebuild_tokens(tokens, spans, kept)
             scored = self.divergence(tokens, pruned)
             out[name] = {
