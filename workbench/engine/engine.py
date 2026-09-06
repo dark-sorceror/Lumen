@@ -14,9 +14,11 @@ import mlx.core as mx
 from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
-from workbench.engine.taps import (apply_steering, capture_attention,
-                                   capture_layer_outputs, layer_count, logit_lens,
-                                   top_k_logprobs)
+from workbench.context.eviction import (keep_by_attention, keep_by_recency,
+                                        rebuild_tokens)
+from workbench.engine.taps import (apply_steering, attention_mass_by_segment,
+                                   capture_attention, capture_layer_outputs,
+                                   layer_count, logit_lens, top_k_logprobs)
 
 
 @dataclass
@@ -391,6 +393,77 @@ class Engine:
             "kl": max(0.0, kl),          # clamp: exact-equality can land at -0.0
             "top1_agrees": int(mx.argmax(lp_a).item()) == int(mx.argmax(lp_b).item()),
         }
+
+    def attention_mass(
+        self,
+        tokens: list[int],
+        spans: dict[str, tuple[int, int]],
+        layers: list[int] | None = None,
+        exclude_sink: bool = False,
+    ) -> dict[str, float]:
+        """Share of the final position's attention landing on each segment,
+        averaged over `layers`.
+
+        `exclude_sink` zeroes position 0 and renormalises. Real models park a
+        large, roughly content-independent share of attention on the first
+        token -- an attention sink, which is a pressure valve for heads with
+        nothing to attend to, not evidence that token 0 matters. Left in, it
+        inflates whichever segment happens to start the context."""
+        if layers is None:
+            n = layer_count(self.model)
+            layers = [n // 4, n // 2, (3 * n) // 4, n - 1]
+        cache = make_prompt_cache(self.model)
+        with capture_attention(self.model, layers) as captured:
+            self.model(mx.array(tokens)[None], cache=cache)
+
+        ids = list(spans)
+        span_list = [spans[sid] for sid in ids]
+        totals = {sid: 0.0 for sid in ids}
+        measured = [captured[i] for i in layers if i in captured]
+        for weights in measured:
+            if exclude_sink:
+                weights = mx.concatenate([mx.zeros((1,)), weights[1:]])
+                weights = weights / weights.sum()
+            for sid, m in zip(ids, attention_mass_by_segment(weights, span_list)):
+                totals[sid] += m / len(measured)
+        return totals
+
+    def evaluate_eviction(
+        self,
+        tokens: list[int],
+        spans: dict[str, tuple[int, int]],
+        budget: int,
+        layers: list[int] | None = None,
+        pinned: tuple[str, ...] = (),
+    ) -> dict[str, dict]:
+        """Score each eviction policy by what its drop costs at the readout.
+
+        Every policy is compared against the SAME full-context distribution, so
+        the numbers are commensurable. `pinned` segments are always kept and
+        still charged against the budget -- typically the live query, which no
+        sane policy evicts and whose removal would swamp every other effect."""
+        raw = self.attention_mass(tokens, spans, layers)
+        nosink = self.attention_mass(tokens, spans, layers, exclude_sink=True)
+        candidates = {
+            "recency": keep_by_recency(spans, budget),
+            "attention": keep_by_attention(spans, raw, budget),
+            "attention_nosink": keep_by_attention(spans, nosink, budget),
+        }
+        out: dict[str, dict] = {}
+        for name, kept in candidates.items():
+            kept = kept | set(pinned)
+            pruned = rebuild_tokens(tokens, spans, kept)
+            scored = self.divergence(tokens, pruned)
+            out[name] = {
+                "kept": kept,
+                "n_tokens": len(pruned),
+                "kl": scored["kl"],
+                "top1_agrees": scored["top1_agrees"],
+                "mass": {"raw": raw, "nosink": nosink}[
+                    "nosink" if name.endswith("nosink") else "raw"
+                ],
+            }
+        return out
 
     # -- shared loop -----------------------------------------------------
 
