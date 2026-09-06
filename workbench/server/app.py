@@ -793,27 +793,32 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None) -> 
             Derivation runs server-side because it needs the model, and the
             direction never crosses the wire: a d_model-length vector is not
             useful to the client, only the fact that one exists."""
-            def _derive():
+            def _derive() -> list[float]:
+                # ALL mlx work stays on this worker thread. An mx.array is bound
+                # to the stream of the thread that made it, so normalising (or
+                # even calling .tolist()) back on the event loop raises
+                # "no Stream(gpu, N) in current thread". Hand back plain floats.
                 with gen_lock:
-                    return engine.steering_vector(
+                    vector = engine.steering_vector(
                         [tokenizer.encode(p) for p in msg["positive"]],
                         [tokenizer.encode(p) for p in msg["negative"]],
                         layer=msg["layer"])
+                    # A UNIT direction, so `strength` alone controls the dose --
+                    # otherwise the scale of the contrast set silently sets it.
+                    norm = float(mx.linalg.norm(vector).item())
+                    if norm > 0:
+                        vector = vector / norm
+                    return [float(x) for x in vector.tolist()]
             try:
-                vector = await loop.run_in_executor(None, _derive)
+                values = await loop.run_in_executor(None, _derive)
             except Exception as e:                     # model/layer errors
                 await _reject(f"{type(e).__name__}: {e}")
                 return
-            # Store a UNIT direction so `strength` alone controls magnitude --
-            # otherwise the scale of the contrast set silently sets the dose.
-            norm = float(mx.linalg.norm(vector).item())
-            if norm > 0:
-                vector = vector / norm
             active_config.steering = [
                 s for s in active_config.steering if s.layer != msg["layer"]
-            ] + [SteeringSpec.from_vector(layer=msg["layer"], vector=vector,
-                                          strength=float(msg["strength"]),
-                                          label=msg.get("label", ""))]
+            ] + [SteeringSpec(layer=msg["layer"], vector=values,
+                              strength=float(msg["strength"]),
+                              label=msg.get("label", ""))]
             await ws.send_json(protocol.config_msg(active_config))
 
         async def handle_rewind(msg: dict) -> None:

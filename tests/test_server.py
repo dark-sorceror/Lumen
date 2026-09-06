@@ -1642,3 +1642,20 @@ def test_clear_steering_empties_the_configuration():
 
     assert msg["steering"] == []
     assert engine.steering_seen[-1] == {}
+
+
+@pytest.mark.timeout(10)
+def test_derived_steering_is_stored_as_plain_floats():
+    """Guards the cross-thread trap: derivation runs on a worker thread, and an
+    mx.array is bound to that thread's stream. Anything kept on the connection
+    must already be plain Python, or it explodes when the event loop touches it."""
+    engine = SteerableEngine()
+    with make_client(engine).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "derive_steering", "positive": ["a"],
+                      "negative": ["b"], "layer": 2, "strength": 1.0})
+        drain_until(ws, "config")
+        # round-trips through json.dumps only if it is plain floats
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+    vector, _ = engine.steering_seen[-1][2]
+    assert vector is not None
