@@ -247,3 +247,60 @@ def test_generation_without_steering_leaves_the_stack_untouched(fake_layered_mod
     list(engine.generate([1], GenParams(max_tokens=2,
                                         steering={0: (mx.ones((8,)), 1.0)})))
     assert fake_layered_model.layers == originals
+
+
+# -- Comparing runs: what an intervention changes inside ---------------------
+
+def test_compare_reports_activation_drift_per_layer(fake_layered_model, fake_tokenizer):
+    """The same prompt under two conditions: how far the residual stream moved
+    at each depth. This is the measurement a post-training intervention needs --
+    steering is just the cheapest intervention to point it at."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    direction = mx.array([1.0] + [0.0] * (fake_layered_model.hidden_dim - 1))
+
+    diff = engine.compare([1, 2], layers=(0, 2), steering={0: (direction, 2.0)})
+
+    assert set(diff) == {0, 2}
+    # layer 0 is shifted by exactly 2 along one axis
+    assert diff[0]["l2"] == pytest.approx(2.0)
+    # a shift off-axis cannot leave the direction unchanged
+    assert diff[0]["cosine"] < 1.0
+
+
+def test_compare_leaves_downstream_layers_shifted_too(fake_layered_model, fake_tokenizer):
+    """Steering the residual stream propagates: a later block sees the shift."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    direction = mx.array([1.0] + [0.0] * (fake_layered_model.hidden_dim - 1))
+
+    diff = engine.compare([1, 2], layers=(0, 2), steering={0: (direction, 2.0)})
+
+    assert diff[2]["l2"] == pytest.approx(2.0)
+
+
+def test_compare_with_no_intervention_reports_no_drift(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    diff = engine.compare([1, 2], layers=(0,), steering={})
+    assert diff[0]["l2"] == pytest.approx(0.0)
+    assert diff[0]["cosine"] == pytest.approx(1.0)
+
+
+def test_compare_reports_whether_the_predicted_token_flipped(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    direction = mx.array([5.0] + [0.0] * (fake_layered_model.hidden_dim - 1))
+
+    diff = engine.compare([1, 2], layers=(0,), steering={0: (direction, 1.0)})
+
+    assert "top_token_changed" in diff[0]
+    assert isinstance(diff[0]["top_token_changed"], bool)
+
+
+def test_cosine_never_exceeds_one_even_in_low_precision(fake_layered_model, fake_tokenizer):
+    """Activations on a quantized model arrive in low precision; accumulating a
+    dot product there can push a cosine above 1, which is not a number a
+    measurement instrument may report."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    for strength in (0.0, 0.5, 3.0):
+        diff = engine.compare([1, 2], layers=(0, 2),
+                              steering={0: (mx.ones((fake_layered_model.hidden_dim,)), strength)})
+        for layer, d in diff.items():
+            assert -1.0 <= d["cosine"] <= 1.0, (layer, strength, d["cosine"])

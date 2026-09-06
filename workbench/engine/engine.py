@@ -6,6 +6,7 @@ surgery possible. The parity harness (experiments/parity.py) proves equivalence 
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
@@ -178,25 +179,79 @@ class Engine:
         finally:
             self._cache, self._cached_tokens = saved
 
+    def _measure(self, tokens: list[int], layers: tuple, top_k: int,
+                 steering: dict | None = None) -> dict:
+        """One forward pass with taps, optionally under an intervention.
+
+        Runs on a THROWAWAY cache: measuring must never disturb the session's
+        KV state, or inspecting would silently change what a later edit costs."""
+        cache = make_prompt_cache(self.model)
+        with ExitStack() as stack:
+            if steering:
+                stack.enter_context(apply_steering(self.model, steering))
+            attention = stack.enter_context(capture_attention(self.model, layers))
+            hidden = stack.enter_context(capture_layer_outputs(self.model, layers))
+            self.model(mx.array(tokens)[None], cache=cache)
+        lens = logit_lens(self.model, hidden, k=top_k)
+        return {
+            layer: {"hidden": hidden.get(layer),
+                    "lens": lens.get(layer, {}),
+                    "attention": attention.get(layer)}
+            for layer in layers
+        }
+
     def inspect(self, tokens: list[int], layers, top_k: int = 5) -> dict:
         """Measure one forward pass over `tokens` without generating.
 
         Returns, per requested layer, what that depth would predict (`lens`)
         and where its attention went (`attention`, a row over key positions).
-
-        Runs on a THROWAWAY cache: measuring the context must never disturb the
-        session's KV state, or inspecting would silently change what a later
-        edit costs."""
+        The raw hidden state is deliberately dropped -- it is d_model floats
+        per layer and no consumer of this call needs it."""
         layers = tuple(layers)
-        cache = make_prompt_cache(self.model)
-        with capture_attention(self.model, layers) as attention:
-            with capture_layer_outputs(self.model, layers) as hidden:
-                self.model(mx.array(tokens)[None], cache=cache)
-        lens = logit_lens(self.model, hidden, k=top_k)
+        measured = self._measure(tokens, layers, top_k)
         return {
-            layer: {"lens": lens.get(layer, {}), "attention": attention.get(layer)}
-            for layer in layers
+            layer: {"lens": m["lens"], "attention": m["attention"]}
+            for layer, m in measured.items()
         }
+
+    def compare(self, tokens: list[int], layers, steering: dict,
+                top_k: int = 5) -> dict:
+        """Run the same prompt with and without an intervention, and report how
+        far the model moved at each depth.
+
+        `l2` and `cosine` are activation drift: how far, and in what direction,
+        the residual stream shifted. `top_token_changed` says whether that was
+        enough to alter what the layer would actually predict -- drift that
+        never reaches the readout is not a behavioural change."""
+        layers = tuple(layers)
+        base = self._measure(tokens, layers, top_k)
+        other = self._measure(tokens, layers, top_k, steering=steering)
+
+        out = {}
+        for layer in layers:
+            # Promote to float32 before any reduction: these arrive in the
+            # model's compute precision, and accumulating a dot product there
+            # can put a cosine slightly above 1 -- a number this must never
+            # report.
+            a = base[layer]["hidden"].astype(mx.float32)
+            b = other[layer]["hidden"].astype(mx.float32)
+            delta = b - a
+            norm_a = float(mx.linalg.norm(a).item())
+            norm_b = float(mx.linalg.norm(b).item())
+            denom = norm_a * norm_b
+            cosine = float((a * b).sum().item()) / denom if denom else 0.0
+            cosine = max(-1.0, min(1.0, cosine))
+            top_a = next(iter(base[layer]["lens"]), None)
+            top_b = next(iter(other[layer]["lens"]), None)
+            out[layer] = {
+                "l2": float(mx.linalg.norm(delta).item()),
+                "cosine": cosine,
+                "relative": (float(mx.linalg.norm(delta).item()) / norm_a) if norm_a else 0.0,
+                "top_token_changed": top_a != top_b,
+                "lens_before": base[layer]["lens"],
+                "lens_after": other[layer]["lens"],
+            }
+        return out
 
     def _mean_activation(self, prompts: list[list[int]], layer: int) -> mx.array:
         """Average hidden state leaving `layer` across a set of prompts."""
