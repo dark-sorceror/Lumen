@@ -21,6 +21,11 @@ from workbench.engine.taps import (apply_steering, attention_mass_by_segment,
                                    layer_count, logit_lens, top_k_logprobs)
 
 
+# Below this, a gold-logprob change is bookkeeping noise rather than a real
+# movement in the answer's standing.
+_GOLD_EPS = 1e-4
+
+
 @dataclass
 class GenParams:
     max_tokens: int = 512
@@ -475,6 +480,68 @@ class Engine:
                 ],
             }
         return out
+
+    def gold_score(self, tokens: list[int], gold: int) -> dict:
+        """Score a context against a KNOWN-correct answer token.
+
+        The complement to `divergence`. Where KL asks "how far did this move
+        from the full context", this asks "did it get the answer right" -- and
+        those are different questions the moment the full context is itself
+        wrong."""
+        lp = self.next_logprobs(tokens)
+        logprob = float(lp[gold].item())
+        rank = int((lp > lp[gold]).sum().item()) + 1
+        return {"logprob": logprob, "rank": rank}
+
+    def assess_edit(self, full: list[int], pruned: list[int], gold: int) -> dict:
+        """Judge an edit on two coordinates, because one is not enough.
+
+        `KL(full || pruned)` measures distance from the unedited model, and
+        treats the full context as ground truth. When the full context is
+        POISONED -- a segment in it drives the model to the wrong answer -- the
+        one edit that repairs the answer is also the one that moves furthest
+        from the full distribution, so KL ranks the repair as the most damaging
+        edit available (measured at 7.5x the cost of deleting the true answer;
+        see docs). KL alone is therefore anti-correlated with quality in exactly
+        the case where editing has the most to offer.
+
+        So the verdict comes from the gold score, which tracks the thing we
+        actually care about, and KL is reported alongside as the magnitude of
+        distributional movement. A large `kl` together with `verdict ==
+        "repaired"` is the signature of a poisoned context -- and neither number
+        can report that on its own."""
+        before = self.gold_score(full, gold)
+        after = self.gold_score(pruned, gold)
+        delta = after["logprob"] - before["logprob"]
+        moved = self.divergence(full, pruned)
+
+        # The verdict keys on the GOLD ANSWER'S STANDING, not on the top-1.
+        # Keying it on the top-1 was wrong in the case that matters most: on a
+        # poisoned context the top-1 is already the wrong token, so an edit can
+        # destroy the answer completely without disturbing it. Measured on the
+        # real lure context, deleting the true answer moved gold from rank 5 to
+        # rank 6732 (-11.5 nats) while the top-1 sat unchanged -- a top-1 rule
+        # calls that "preserved".
+        #
+        # Rank is the primary signal because it is scale-free and discrete; the
+        # logprob delta breaks ties within a rank.
+        if after["rank"] < before["rank"] or (
+            after["rank"] == before["rank"] and delta > _GOLD_EPS
+        ):
+            verdict = "repaired"
+        elif after["rank"] > before["rank"] or delta < -_GOLD_EPS:
+            verdict = "damaged"
+        else:
+            verdict = "preserved"
+
+        return {
+            "kl": moved["kl"],
+            "top1_agrees": moved["top1_agrees"],
+            "gold_before": before,
+            "gold_after": after,
+            "gold_delta": delta,
+            "verdict": verdict,
+        }
 
     # -- shared loop -----------------------------------------------------
 

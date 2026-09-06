@@ -170,3 +170,144 @@ def test_pinned_segments_do_not_compete_in_the_ranking(fake_layered_model, fake_
         assert result["n_tokens"] <= 6, name
         # 4 tokens reserved, so exactly one of b/c can still fit.
         assert len(result["kept"] & {"b", "c"}) == 1, name
+
+
+# -- Two-coordinate assessment: KL alone cannot score a repair --------------
+
+def test_gold_logprob_reports_the_answer_token_and_its_rank(
+    fake_layered_model, fake_tokenizer
+):
+    """The fake predicts last_token + 1, so 3 is the argmax for [1, 2]."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    top = engine.gold_score([1, 2], gold=3)
+    other = engine.gold_score([1, 2], gold=9)
+
+    assert top["rank"] == 1
+    assert other["rank"] > 1
+    assert top["logprob"] > other["logprob"]
+
+
+def test_an_edit_that_changes_nothing_is_preserved(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    out = engine.assess_edit([1, 2], [1, 2], gold=3)
+
+    assert out["verdict"] == "preserved"
+    assert out["kl"] == pytest.approx(0.0, abs=1e-5)
+    assert out["gold_delta"] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_an_edit_that_moves_the_answer_away_from_gold_is_damaged(
+    fake_layered_model, fake_tokenizer
+):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    # full [1,2] predicts 3 (== gold); pruning to [1,7] predicts 8.
+    out = engine.assess_edit([1, 2], [1, 7], gold=3)
+
+    assert out["verdict"] == "damaged"
+    assert out["gold_delta"] < 0
+    assert out["kl"] > 0
+
+
+def test_an_edit_that_moves_the_answer_toward_gold_is_repaired(
+    fake_layered_model, fake_tokenizer
+):
+    """The case that broke KL-against-full: the full context is WRONG, the edit
+    fixes it, and KL -- which measures distance from the full context -- is
+    therefore large precisely because the edit is good."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    # full [1,7] predicts 8 (gold is 3, so the full context is wrong);
+    # pruning to [1,2] predicts 3 == gold.
+    out = engine.assess_edit([1, 7], [1, 2], gold=3)
+
+    assert out["verdict"] == "repaired"
+    assert out["gold_delta"] > 0
+    assert out["kl"] > 0
+
+
+def test_a_large_kl_does_not_by_itself_mean_a_bad_edit(
+    fake_layered_model, fake_tokenizer
+):
+    """The whole point of carrying two coordinates: the repair and the damage
+    both score a large KL, and only the gold delta tells them apart."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    damaged = engine.assess_edit([1, 2], [1, 7], gold=3)
+    repaired = engine.assess_edit([1, 7], [1, 2], gold=3)
+
+    assert damaged["kl"] > 0 and repaired["kl"] > 0
+    assert damaged["verdict"] != repaired["verdict"]
+
+
+class _ScriptedModel:
+    """Returns an explicit logit row per context, so a test can pin cases the
+    shared fake cannot express -- it spikes one token and ties the rest, which
+    makes every non-argmax token rank 2 and hides any damage below the top-1."""
+
+    vocab_size = 50
+    hidden_dim = 8
+
+    def __init__(self, rows: dict[tuple, list[float]]):
+        self.rows = rows
+        self.layers = []
+
+    def __call__(self, inputs, cache=None):
+        key = tuple(int(x) for x in inputs[0].tolist())
+        row = self.rows[key]
+        n = inputs.shape[1]
+        return mx.broadcast_to(mx.array(row), (1, n, self.vocab_size))
+
+    def make_cache(self):
+        return []
+
+
+def _row(pairs: dict[int, float], vocab: int = 50) -> list[float]:
+    row = [-20.0] * vocab
+    for tok, logit in pairs.items():
+        row[tok] = logit
+    return row
+
+
+def test_an_edit_that_wrecks_the_gold_rank_is_damaged_even_if_top1_is_unchanged(
+    fake_tokenizer,
+):
+    """The defect this pins: on a poisoned context the top-1 is already wrong,
+    so an edit can destroy the answer's standing entirely without touching it.
+    Keying the verdict on top-1 alone reports that as 'preserved'."""
+    GOLD = 7
+    model = _ScriptedModel({
+        # full: top-1 is token 1 (wrong); gold sits just behind it at rank 2.
+        (1, 2): _row({1: 5.0, GOLD: 4.0, 3: 3.0}),
+        # pruned: top-1 is STILL token 1, but gold has collapsed below token 3.
+        (1,):   _row({1: 5.0, 3: 3.0, GOLD: -15.0}),
+    })
+    engine = Engine(model, fake_tokenizer)
+
+    out = engine.assess_edit([1, 2], [1], gold=GOLD)
+
+    assert out["top1_agrees"] is True           # the top-1 never moved
+    assert out["gold_delta"] < 0                # but the answer was destroyed
+    assert out["gold_after"]["rank"] > out["gold_before"]["rank"]
+    assert out["verdict"] == "damaged"
+
+
+def test_an_edit_that_lifts_the_gold_rank_without_reaching_top1_is_repaired(
+    fake_tokenizer,
+):
+    """The mirror case: real progress toward the answer that stops short of
+    changing what the model says. Still an improvement, and worth seeing."""
+    GOLD = 7
+    model = _ScriptedModel({
+        (1, 2): _row({1: 5.0, 3: 3.0, GOLD: -15.0}),
+        (1,):   _row({1: 5.0, GOLD: 4.0, 3: 3.0}),
+    })
+    engine = Engine(model, fake_tokenizer)
+
+    out = engine.assess_edit([1, 2], [1], gold=GOLD)
+
+    assert out["top1_agrees"] is True
+    assert out["gold_after"]["rank"] < out["gold_before"]["rank"]
+    assert out["verdict"] == "repaired"
