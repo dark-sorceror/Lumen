@@ -380,3 +380,47 @@ def test_sweep_rejects_an_empty_probe_set(fake_layered_model, fake_tokenizer):
     engine = Engine(fake_layered_model, fake_tokenizer)
     with pytest.raises(ValueError):
         engine.sweep_injection(probes=[], positive=[[1]], negative=[[2]], layers=(0,))
+
+
+# -- Divergence: what does dropping context cost? ---------------------------
+
+def test_next_logprobs_is_a_normalised_distribution(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    lp = engine.next_logprobs([1, 2])
+
+    assert lp.shape == (fake_layered_model.vocab_size,)
+    total = float(mx.exp(lp).sum().item())
+    assert total == pytest.approx(1.0, abs=1e-4)
+
+
+def test_divergence_is_zero_between_identical_contexts(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    d = engine.divergence([1, 2], [1, 2])
+
+    assert d["kl"] == pytest.approx(0.0, abs=1e-5)
+    assert d["top1_agrees"] is True
+
+
+def test_divergence_detects_a_changed_prediction(fake_layered_model, fake_tokenizer):
+    """The fake predicts last_token + 1, so contexts ending differently must
+    disagree at the readout."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    d = engine.divergence([1, 2], [1, 7])
+
+    assert d["kl"] > 0.0
+    assert d["top1_agrees"] is False
+
+
+def test_divergence_is_asymmetric_in_the_expected_direction(fake_layered_model, fake_tokenizer):
+    """KL(full || pruned) is the quantity of interest: how surprised the full
+    context's distribution is by the pruned one. It is not symmetric, and the
+    argument order therefore matters."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    forward = engine.divergence([1, 2], [1, 7])["kl"]
+    reverse = engine.divergence([1, 7], [1, 2])["kl"]
+
+    assert forward > 0.0 and reverse > 0.0

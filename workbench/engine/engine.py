@@ -365,6 +365,33 @@ class Engine:
             }
         return out
 
+    def next_logprobs(self, tokens: list[int]) -> mx.array:
+        """Full next-token log-distribution for `tokens`, on a throwaway cache."""
+        cache = make_prompt_cache(self.model)
+        logits = self._forward(list(tokens), cache).astype(mx.float32)
+        return (logits - mx.logsumexp(logits, axis=-1, keepdims=True))[0]
+
+    def divergence(self, tokens_a: list[int], tokens_b: list[int]) -> dict:
+        """How much the prediction moves between two contexts.
+
+        `kl` is KL(A || B) in nats -- how surprised context A's distribution is
+        by context B's. Deliberately asymmetric, and the argument order is the
+        useful one: pass the FULL context first and the pruned one second, so
+        the number answers "what did dropping that cost", not the reverse.
+
+        `top1_agrees` is the coarse behavioural question underneath it. A
+        policy can move probability mass around considerably without changing
+        what the model actually says next, and only the second one is a
+        behaviour change."""
+        lp_a = self.next_logprobs(tokens_a)
+        lp_b = self.next_logprobs(tokens_b)
+        p_a = mx.exp(lp_a)
+        kl = float((p_a * (lp_a - lp_b)).sum().item())
+        return {
+            "kl": max(0.0, kl),          # clamp: exact-equality can land at -0.0
+            "top1_agrees": int(mx.argmax(lp_a).item()) == int(mx.argmax(lp_b).item()),
+        }
+
     # -- shared loop -----------------------------------------------------
 
     def _forward(self, tokens: list[int], cache, hidden_layers: tuple[int, ...] = ()) -> mx.array:
