@@ -15,7 +15,8 @@ from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
 from workbench.engine.taps import (apply_steering, capture_attention,
-                                   capture_layer_outputs, logit_lens, top_k_logprobs)
+                                   capture_layer_outputs, layer_count, logit_lens,
+                                   top_k_logprobs)
 
 
 @dataclass
@@ -314,6 +315,53 @@ class Engine:
                 "std_relative": _std(rel),
                 "mean_cosine": _mean(cos),
                 "flip_rate": _mean(flips),
+            }
+        return out
+
+    def activation_norm(self, tokens: list[int], layer: int) -> float:
+        """||h_l|| at the last position of `tokens`.
+
+        The scale any intervention must be sized against. A dose quoted as a
+        bare constant is meaningless, because this grows with depth."""
+        measured = self._measure(tokens, (layer,), top_k=1)
+        return float(mx.linalg.norm(measured[layer]["hidden"]).item())
+
+    def sweep_injection(self, probes: list[list[int]], positive: list[list[int]],
+                        negative: list[list[int]], layers, rho: float = 0.15,
+                        top_k: int = 5) -> dict:
+        """Ask where an intervention is worth injecting.
+
+        For each candidate depth: derive a contrastive direction THERE, dose it
+        at `rho * ||h_l||` measured at that same depth, and report what reached
+        the readout -- drift and flip rate at the final block.
+
+        Holding `rho` constant rather than `alpha` is the whole point. The
+        stream's magnitude grows with depth, so a fixed alpha is a shrinking
+        perturbation as you go deeper, and a sweep over it would measure the
+        dose schedule rather than the depth."""
+        probes = list(probes)
+        if not probes:
+            raise ValueError("need at least one probe prompt")
+        final = layer_count(self.model) - 1
+        out = {}
+        for layer in tuple(layers):
+            direction = self.steering_vector(positive, negative, layer=layer)
+            norm = float(mx.linalg.norm(direction).item())
+            if norm > 0:
+                direction = direction / norm
+            # Dose from the FIRST probe's stream at this depth; probes are drawn
+            # from one distribution, so this is a stable scale rather than a
+            # per-probe moving target.
+            alpha = rho * self.activation_norm(probes[0], layer)
+            agg = self.compare_over(probes, layers=(final,),
+                                    steering={layer: (direction, alpha)}, top_k=top_k)
+            out[layer] = {
+                "rho": rho,
+                "alpha": alpha,
+                "n": agg[final]["n"],
+                "final_relative": agg[final]["mean_relative"],
+                "final_std": agg[final]["std_relative"],
+                "final_flip_rate": agg[final]["flip_rate"],
             }
         return out
 

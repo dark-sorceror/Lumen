@@ -332,3 +332,51 @@ def test_compare_over_flip_rate_is_a_fraction_of_prompts(fake_layered_model, fak
     engine = Engine(fake_layered_model, fake_tokenizer)
     agg = engine.compare_over([[1, 2], [3, 4]], layers=(0,), steering={})
     assert agg[0]["flip_rate"] == pytest.approx(0.0)   # no intervention, no flips
+
+
+# -- Layer sweep: where is an intervention worth injecting? ------------------
+
+def test_activation_norm_measures_the_stream_at_a_layer(fake_layered_model, fake_tokenizer):
+    """The scale any dose must be sized against. FakeLayer adds index+1, so a
+    prompt ending in token 1 leaves layer 0 with every dim at 2.0."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    norm = engine.activation_norm([1], layer=0)
+
+    assert norm == pytest.approx(2.0 * (fake_layered_model.hidden_dim ** 0.5))
+
+
+def test_sweep_doses_each_layer_relative_to_its_own_norm(fake_layered_model, fake_tokenizer):
+    """A fixed alpha means different things at different depths, because the
+    stream's own magnitude grows. The sweep must hold rho constant, not alpha."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    sweep = engine.sweep_injection(probes=[[1], [2]], positive=[[5]], negative=[[1]],
+                                   layers=(0, 2), rho=0.1)
+
+    assert set(sweep) == {0, 2}
+    for layer, r in sweep.items():
+        assert r["rho"] == pytest.approx(0.1)
+        # alpha is rho * the norm measured AT that layer, so it differs by depth
+        assert r["alpha"] == pytest.approx(0.1 * engine.activation_norm([1], layer))
+    assert sweep[0]["alpha"] != pytest.approx(sweep[2]["alpha"])
+
+
+def test_sweep_reports_outcome_at_the_readout(fake_layered_model, fake_tokenizer):
+    """What matters is whether the final prediction moved, not whether the
+    representation did."""
+    engine = Engine(fake_layered_model, fake_tokenizer)
+
+    sweep = engine.sweep_injection(probes=[[1], [2]], positive=[[5]], negative=[[1]],
+                                   layers=(0,), rho=0.5)
+
+    r = sweep[0]
+    assert r["n"] == 2
+    assert 0.0 <= r["final_flip_rate"] <= 1.0
+    assert r["final_relative"] >= 0.0
+
+
+def test_sweep_rejects_an_empty_probe_set(fake_layered_model, fake_tokenizer):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    with pytest.raises(ValueError):
+        engine.sweep_injection(probes=[], positive=[[1]], negative=[[2]], layers=(0,))
