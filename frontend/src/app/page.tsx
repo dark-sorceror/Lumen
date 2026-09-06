@@ -23,6 +23,13 @@ export default function Home() {
     cacheImpact,
     editError,
     getContext,
+    config,
+    configNames,
+    deriveSteering,
+    clearSteering,
+    saveConfig,
+    loadConfig,
+    listConfigs,
     rewind,
     inspect,
     inspection,
@@ -233,6 +240,13 @@ export default function Home() {
           inspection={inspection}
           onInspect={inspect}
           onRewind={rewind}
+          config={config}
+          configNames={configNames}
+          onDeriveSteering={deriveSteering}
+          onClearSteering={clearSteering}
+          onSaveConfig={saveConfig}
+          onLoadConfig={loadConfig}
+          onListConfigs={listConfigs}
           onPreviewEdit={previewEdit}
           onApplyEdit={applyEdit}
         />

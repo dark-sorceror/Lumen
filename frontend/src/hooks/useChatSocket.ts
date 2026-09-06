@@ -188,8 +188,13 @@ type InspectionEvent = {
   layers: LayerInspection[];
 };
 
+type ConfigEvent = { type: "config"; name: string; steering: ConfigSteering[] };
+type ConfigsEvent = { type: "configs"; names: string[] };
+
 type ServerEvent =
   | InspectionEvent
+  | ConfigEvent
+  | ConfigsEvent
   | TokenEvent
   | DoneEvent
   | ErrorEvent
@@ -232,6 +237,14 @@ export function splitThinking(raw: string): { thoughts: string; text: string } {
 // v1.3 inspection: an on-demand measurement of the live context. Requested
 // rather than streamed -- a hidden state is d_model floats per layer per
 // token, far too much to push alongside the token stream.
+export type ConfigSteering = {
+  layer: number;
+  strength: number;
+  label: string;
+  dim: number;
+};
+export type ActiveConfig = { name: string; steering: ConfigSteering[] };
+
 export type LensEntry = { token_id: number; text: string; logprob: number };
 export type SegmentMass = { segment_id: string; mass: number };
 export type LayerInspection = {
@@ -250,6 +263,8 @@ export function useChatSocket() {
   // Live token-stats readout for the current/last response.
   const [stats, setStats] = useState<GenStats | null>(null);
   const [inspection, setInspection] = useState<LayerInspection[] | null>(null);
+  const [config, setConfig] = useState<ActiveConfig | null>(null);
+  const [configNames, setConfigNames] = useState<string[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   // Accumulated raw text of the CURRENT ROUND only (not the whole turn).
@@ -501,6 +516,10 @@ export function useChatSocket() {
             process: [],
           },
         ]);
+      } else if (data.type === "config") {
+        setConfig({ name: data.name, steering: data.steering });
+      } else if (data.type === "configs") {
+        setConfigNames(data.names);
       } else if (data.type === "inspection") {
         setInspection(data.layers as LayerInspection[]);
       } else if (data.type === "context") {
@@ -613,6 +632,23 @@ export function useChatSocket() {
     ws.send(JSON.stringify({ type: "rewind", ...(valid ? { to_event: toEvent } : {}) }));
   }, []);
 
+  const sendJson = useCallback((payload: object) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(payload));
+  }, []);
+
+  const deriveSteering = useCallback(
+    (positive: string[], negative: string[], layer: number, strength: number, label: string) => {
+      sendJson({ type: "derive_steering", positive, negative, layer, strength, label });
+    },
+    [sendJson],
+  );
+  const clearSteering = useCallback(() => sendJson({ type: "clear_steering" }), [sendJson]);
+  const saveConfig = useCallback((name: string) => sendJson({ type: "save_config", name }), [sendJson]);
+  const loadConfig = useCallback((name: string) => sendJson({ type: "load_config", name }), [sendJson]);
+  const listConfigs = useCallback(() => sendJson({ type: "list_configs" }), [sendJson]);
+
   const inspect = useCallback((layers?: number[]) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -668,6 +704,13 @@ export function useChatSocket() {
     cacheImpact,
     editError,
     getContext,
+    config,
+    configNames,
+    deriveSteering,
+    clearSteering,
+    saveConfig,
+    loadConfig,
+    listConfigs,
     rewind,
     inspect,
     inspection,

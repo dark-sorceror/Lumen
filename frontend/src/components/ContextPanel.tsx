@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CacheImpact, LayerInspection, Segment } from "@/hooks/useChatSocket";
+import type { ActiveConfig, CacheImpact, LayerInspection, Segment } from "@/hooks/useChatSocket";
+import SteeringPanel from "./SteeringPanel";
 import styles from "./ContextPanel.module.css";
 
 type Props = {
@@ -15,6 +16,14 @@ type Props = {
   inspection: LayerInspection[] | null;
   onInspect: () => void;
   onRewind: () => void;
+  config: ActiveConfig | null;
+  configNames: string[];
+  onDeriveSteering: (positive: string[], negative: string[], layer: number,
+                     strength: number, label: string) => void;
+  onClearSteering: () => void;
+  onSaveConfig: (name: string) => void;
+  onLoadConfig: (name: string) => void;
+  onListConfigs: () => void;
   onPreviewEdit: (segmentId: string, newText: string) => void;
   onApplyEdit: (segmentId: string, newText: string) => void;
 };
@@ -56,6 +65,13 @@ export default function ContextPanel({
   inspection,
   onInspect,
   onRewind,
+  config,
+  configNames,
+  onDeriveSteering,
+  onClearSteering,
+  onSaveConfig,
+  onLoadConfig,
+  onListConfigs,
   onPreviewEdit,
   onApplyEdit,
 }: Props) {
@@ -149,6 +165,16 @@ export default function ContextPanel({
         aria-hidden={!open}
         aria-label="Context inspector"
       >
+        <SteeringPanel
+          config={config}
+          configNames={configNames}
+          streaming={streaming}
+          onDerive={onDeriveSteering}
+          onClear={onClearSteering}
+          onSave={onSaveConfig}
+          onLoad={onLoadConfig}
+          onList={onListConfigs}
+        />
         {inspection && inspection.length > 0 && (
           <div className={styles.lens}>
             {inspection.map((entry) => (

@@ -1,0 +1,130 @@
+/* Steering controls, folded into the context inspector: these act BELOW the
+   prompt layer, so they belong next to the context rather than in a settings
+   screen. Collapsed by default -- the summary line is the common case. */
+.wrap {
+  border-bottom: 1px solid var(--border);
+}
+
+.toggle {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--sidebar-bg);
+}
+
+.summary {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0.85rem 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+}
+
+.field textarea {
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.35rem 0.45rem;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-end;
+}
+
+.small {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+}
+
+.small input,
+.nameInput {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.68rem;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.25rem 0.4rem;
+}
+
+.action {
+  padding: 0.25rem 0.6rem;
+  font: inherit;
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.action:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--sidebar-bg);
+}
+
+.action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.saved {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.chip {
+  padding: 0.15rem 0.45rem;
+  font: inherit;
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--foreground);
+}
