@@ -64,3 +64,12 @@ def test_the_append_gate_still_reads_the_author():
     ctx.apply(append_event(seg, actor="user"))
 
     assert ctx.segments[0].provenance.author == "user"
+
+
+def test_assigning_a_string_later_still_gives_a_record():
+    seg = Segment(id="s1", kind=SegmentKind.USER_MSG, text="hi", provenance="user")
+
+    seg.provenance = "model"
+
+    assert isinstance(seg.provenance, Provenance)
+    assert seg.provenance.author == "model"

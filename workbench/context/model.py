@@ -92,8 +92,15 @@ class Segment:
     editable_by: Editor = Editor.BOTH
     provenance: Provenance = field(default_factory=Provenance)
 
-    def __post_init__(self) -> None:
-        self.provenance = Provenance.coerce(self.provenance)
+    def __setattr__(self, name: str, value: object) -> None:
+        # Coerce on ASSIGNMENT, not only in __post_init__: the dataclass's own
+        # __init__ assigns through here too, so this one mechanism covers
+        # construction and later writes alike. Without it `seg.provenance =
+        # "model"` leaves a bare string on a field every later reader treats
+        # as a record, and the AttributeError surfaces somewhere else entirely.
+        if name == "provenance":
+            value = Provenance.coerce(value)
+        object.__setattr__(self, name, value)
 
 
 @dataclass
