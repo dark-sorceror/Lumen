@@ -72,7 +72,15 @@ class Provenance:
             return cls(author=author, source=value if _rest else "")
         if isinstance(value, dict):
             data = dict(value)
-            data["derived_from"] = tuple(data.get("derived_from", ()))
+            author = data.get("author", "user")
+            if not isinstance(author, str):
+                raise TypeError("provenance author must be a string")
+            derived = data.get("derived_from", ())
+            if isinstance(derived, str) or not all(
+                    isinstance(sid, str) for sid in derived):
+                raise TypeError(
+                    "provenance derived_from must be a sequence of segment ids")
+            data["derived_from"] = tuple(derived)
             return cls(**data)
         raise TypeError(f"cannot read provenance from {type(value).__name__}")
 
@@ -152,10 +160,17 @@ class ContextObject:
                     raise PermissionError(
                         f"{event.actor} may not append a segment with "
                         f"editable_by={segment.editable_by.value}")
-                if segment.provenance.author != event.actor:
+                # The whole record must be the actor's own, not merely its
+                # author. Checking .author alone lets a user append
+                # {"author": "user", "source": "tool:calculator"}, which passes
+                # and then reaches every client as tool-authored. Comparing
+                # against Provenance(author=actor) is the old whole-string
+                # semantics exactly, and also refuses a forged source,
+                # derived_from, revision or op_seq from the wire.
+                if segment.provenance != Provenance(author=event.actor):
                     raise PermissionError(
                         f"{event.actor} may not append a segment with "
-                        f"provenance {segment.provenance!r}")
+                        f"provenance {segment.provenance.legacy!r}")
             self.segments.append(segment)
         elif event.op == "replace_text":
             i = self._index_of(event.segment_id)
