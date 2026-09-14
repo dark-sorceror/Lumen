@@ -145,7 +145,7 @@ def segment_msg(seg, cost: CacheImpact | None = None) -> dict:
         "text": seg.text,
         "emphasis": seg.emphasis,
         "editable_by": seg.editable_by.value,
-        "provenance": seg.provenance,
+        "provenance": seg.provenance.legacy,
     }
     if cost is not None:
         # What rewriting THIS segment would cost, so the client can show the

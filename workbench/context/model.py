@@ -40,6 +40,64 @@ _MAY_EDIT = {
 }
 
 
+@dataclass(frozen=True)
+class Provenance:
+    """Where a segment came from, as structure rather than a sentence.
+
+    This was a free string (`"user"`, `"attachment:notes.pdf"`, `"tool:calc"`).
+    The string is kept verbatim as `source` so nothing that formatted or
+    matched on it changes, and the parts worth ranking on are lifted out.
+
+    `derived_from` is the edge no hosted API can offer: the segments that were
+    in the projection when a generation produced this one. It makes taint
+    propagate -- if a segment is later superseded, everything generated from it
+    is suspect -- without any semantic analysis."""
+    author: str = "user"
+    source: str = ""
+    revision: int = 0
+    derived_from: tuple[str, ...] = ()
+    op_seq: int = -1
+
+    @classmethod
+    def coerce(cls, value: object) -> "Provenance":
+        """Accept a Provenance, the legacy string, or a replayed dict.
+
+        Replay and from_json both hand back plain dicts, and every existing
+        call site passes a string; coercing in one place is what makes this a
+        type change rather than a rewrite of the call sites."""
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            author, _, _rest = value.partition(":")
+            return cls(author=author, source=value if _rest else "")
+        if isinstance(value, dict):
+            data = dict(value)
+            data["derived_from"] = tuple(data.get("derived_from", ()))
+            return cls(**data)
+        raise TypeError(f"cannot read provenance from {type(value).__name__}")
+
+    @property
+    def legacy(self) -> str:
+        """The free string this record replaced: the source when there is one,
+        else the author. Wire and display code that predates the record reads it."""
+        return self.source or self.author
+
+    def __eq__(self, other: object) -> bool:
+        # A bare string compares as the legacy form, so code and tests written
+        # against the string keep their meaning.
+        if isinstance(other, str):
+            return self.legacy == other
+        if not isinstance(other, Provenance):
+            return NotImplemented
+        return (self.author, self.source, self.revision, self.derived_from,
+                self.op_seq) == (other.author, other.source, other.revision,
+                                 other.derived_from, other.op_seq)
+
+    def __hash__(self) -> int:
+        return hash((self.author, self.source, self.revision,
+                     self.derived_from, self.op_seq))
+
+
 @dataclass
 class Segment:
     id: str
@@ -47,7 +105,10 @@ class Segment:
     text: str
     emphasis: float = 0.0
     editable_by: Editor = Editor.BOTH
-    provenance: str = "user"
+    provenance: Provenance = field(default_factory=Provenance)
+
+    def __post_init__(self) -> None:
+        self.provenance = Provenance.coerce(self.provenance)
 
 
 @dataclass
@@ -99,7 +160,7 @@ class ContextObject:
                     raise PermissionError(
                         f"{event.actor} may not append a segment with "
                         f"editable_by={segment.editable_by.value}")
-                if segment.provenance != event.actor:
+                if segment.provenance.author != event.actor:
                     raise PermissionError(
                         f"{event.actor} may not append a segment with "
                         f"provenance {segment.provenance!r}")
