@@ -27,12 +27,12 @@ def test_frame_message_framing_segments_are_editable_by_none(fake_tokenizer):
 def test_frame_message_assistant_role_uses_assistant_msg_kind(fake_tokenizer):
     _, content, _ = frame_message(fake_tokenizer, "assistant", "5 6")
     assert content.kind == SegmentKind.ASSISTANT_MSG
-    assert content.provenance == "model"
+    assert content.provenance.author == "model"
 
 
 def test_frame_message_user_role_provenance_is_user(fake_tokenizer):
     _, content, _ = frame_message(fake_tokenizer, "user", "5 6")
-    assert content.provenance == "user"
+    assert content.provenance.author == "user"
 
 
 def test_framed_tokens_match_single_message_chat_template(fake_tokenizer):
@@ -81,12 +81,12 @@ def test_frame_tool_result_wraps_content_in_scratch_framing(fake_tokenizer):
 
 def test_frame_tool_result_provenance_and_editability(fake_tokenizer):
     _, content, _ = frame_tool_result(fake_tokenizer, "calculator", "4")
-    assert content.provenance == "tool:calculator"
+    assert content.provenance.legacy == "tool:calculator"
     assert content.editable_by == Editor.USER
     prefix, _, suffix = frame_tool_result(fake_tokenizer, "calculator", "4")
     assert prefix.editable_by == Editor.NONE
     assert suffix.editable_by == Editor.NONE
-    assert prefix.provenance == "framing" and suffix.provenance == "framing"
+    assert prefix.provenance.author == "framing" and suffix.provenance.author == "framing"
 
 
 def test_frame_tool_result_uses_distinct_role_framing_from_user(fake_tokenizer):

@@ -82,21 +82,6 @@ class Provenance:
         else the author. Wire and display code that predates the record reads it."""
         return self.source or self.author
 
-    def __eq__(self, other: object) -> bool:
-        # A bare string compares as the legacy form, so code and tests written
-        # against the string keep their meaning.
-        if isinstance(other, str):
-            return self.legacy == other
-        if not isinstance(other, Provenance):
-            return NotImplemented
-        return (self.author, self.source, self.revision, self.derived_from,
-                self.op_seq) == (other.author, other.source, other.revision,
-                                 other.derived_from, other.op_seq)
-
-    def __hash__(self) -> int:
-        return hash((self.author, self.source, self.revision,
-                     self.derived_from, self.op_seq))
-
 
 @dataclass
 class Segment:

@@ -134,7 +134,7 @@ def test_user_append_benign_segment_ok():
     attributed to themselves (editable_by=BOTH, provenance="user")."""
     ctx = ContextObject()
     s = seg("note", editable=Editor.BOTH)
-    assert s.provenance == "user"
+    assert s.provenance.author == "user"
     ctx.apply(_append_evt(s, actor="user"))
     assert ctx.segments[0].text == "note"
 
@@ -179,7 +179,7 @@ def test_server_append_of_framing_ok():
     s = Segment(id="scratch-1", kind=SegmentKind.SCRATCH, text="<user>",
                editable_by=Editor.NONE, provenance="framing")
     ctx.apply(_append_evt(s, actor="server"))
-    assert ctx.segments[0].provenance == "framing"
+    assert ctx.segments[0].provenance.author == "framing"
     assert ctx.segments[0].editable_by == Editor.NONE
 
 
