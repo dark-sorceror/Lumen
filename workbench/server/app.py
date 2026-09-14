@@ -314,8 +314,11 @@ def _append_framed_message(ctx: ContextObject, segments: list[Segment],
     `frame_message()`. The SCRATCH framing segments carry provenance="framing"
     and editable_by=NONE -- only the privileged "server" actor may append
     them (ContextObject.apply's append gate requires editable_by/provenance
-    to match the actor for non-"server" actors). The content segment keeps
-    its natural actor ("user"/"model"), which matches its own provenance."""
+    to match the actor for non-"server" actors). The content segment is
+    appended under the actor the caller names, which is "user" for a user turn
+    and "server" for an assistant turn -- the latter because the append gate
+    refuses any non-"server" actor supplying provenance that carries
+    derived_from."""
     for seg in segments:
         actor = "server" if seg.kind == SegmentKind.SCRATCH else content_actor
         _append_segment(ctx, seg, actor=actor)
@@ -665,6 +668,12 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None,
                             tokenizer, "assistant", "".join(parts),
                             provenance=Provenance(author="model",
                                                   derived_from=produced_from)),
+                        # "server", not "model": the append gate refuses a
+                        # non-server actor supplying provenance with a
+                        # derived_from, and this is the server recording what
+                        # the model produced. Restoring "model" here raises
+                        # PermissionError inside turn closure and kills the
+                        # generation task.
                         content_actor="server")
 
                 if failed:
