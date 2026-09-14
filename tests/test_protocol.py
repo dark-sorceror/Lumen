@@ -1,4 +1,3 @@
-from workbench.server.protocol import tool_call_msg, tool_result_msg
 import json
 from dataclasses import asdict
 import pytest
@@ -11,11 +10,7 @@ from workbench.server.protocol import (
     config_msg,
     inspection_msg,cache_impact_msg, context_msg, done_msg,
                                        edit_rejected_msg, parse_client_msg, token_msg,
-                                       )
-
-
-_VALID_EVENT = {"op": "replace_text", "segment_id": "s1",
-                "payload": {"text": "hi"}, "actor": "user"}
+                                       tool_call_msg, tool_result_msg)
 
 
 def test_token_msg_from_event():
@@ -29,9 +24,41 @@ def test_done_msg():
     assert done_msg("stop") == {"type": "done", "finish_reason": "stop"}
 
 
+def test_done_msg_tool_limit_finish_reason():
+    assert done_msg("tool_limit") == {"type": "done", "finish_reason": "tool_limit"}
+
+
+# -- v1.2: tool calling -------------------------------------------------
+
+def test_token_msg_text_override_suppresses_raw_text():
+    e = TokenEvent(token_id=9, text="<tool_call>{...}</tool_call>",
+                   top_logprobs={1: -0.5})
+    msg = token_msg(e, text="")
+    assert msg == {"type": "token", "token_id": 9, "text": "",
+                   "top_logprobs": {"1": -0.5}}
+
+
 def test_token_msg_without_override_uses_event_text():
     e = TokenEvent(token_id=9, text="hello")
     assert token_msg(e)["text"] == "hello"
+
+
+def test_tool_call_msg():
+    msg = tool_call_msg("tc_0", "calculator", {"expression": "2+2"})
+    assert msg == {"type": "tool_call", "call_id": "tc_0", "name": "calculator",
+                   "arguments": {"expression": "2+2"}}
+
+
+def test_tool_result_msg_success():
+    msg = tool_result_msg("tc_0", "calculator", "4", error=False)
+    assert msg == {"type": "tool_result", "call_id": "tc_0", "name": "calculator",
+                   "result": "4", "error": False}
+
+
+def test_tool_result_msg_error():
+    msg = tool_result_msg("tc_0", "calculator", "error: bad expression", error=True)
+    assert msg["error"] is True
+    assert msg["result"] == "error: bad expression"
 
 
 def test_parse_client_msg_valid():
@@ -50,8 +77,56 @@ def test_parse_client_msg_invalid():
         parse_client_msg('{"type": "user_message"}')  # missing text
 
 
+# -- Attachments: optional attachment_ids on user_message -----------
+
+
+def test_parse_user_message_with_attachment_ids():
+    import json
+    raw = json.dumps({"type": "user_message", "text": "hey",
+                      "attachment_ids": ["abc123", "def456"]})
+    msg = parse_client_msg(raw)
+    assert msg == {"type": "user_message", "text": "hey",
+                   "attachment_ids": ["abc123", "def456"]}
+
+
+def test_parse_user_message_with_empty_attachment_ids():
+    assert parse_client_msg(
+        '{"type": "user_message", "text": "hi", "attachment_ids": []}'
+    ) == {"type": "user_message", "text": "hi", "attachment_ids": []}
+
+
+def test_parse_user_message_without_attachment_ids_still_valid():
+    # Existing wire clients that never send attachment_ids must stay valid.
+    assert parse_client_msg('{"type": "user_message", "text": "hey"}') == {
+        "type": "user_message", "text": "hey"}
+
+
+def test_parse_user_message_non_list_attachment_ids_rejected():
+    import json
+    import pytest
+    for bad in ("abc123", 5, {"a": 1}, None):
+        with pytest.raises(ValueError):
+            parse_client_msg(json.dumps(
+                {"type": "user_message", "text": "hey", "attachment_ids": bad}))
+
+
+def test_parse_user_message_non_string_items_in_attachment_ids_rejected():
+    import json
+    import pytest
+    with pytest.raises(ValueError):
+        parse_client_msg(json.dumps(
+            {"type": "user_message", "text": "hey", "attachment_ids": ["ok", 5]}))
+
+
+# -- v1.1: get_context / preview_edit / apply_edit ---------------------------
+
+
 def test_parse_get_context():
     assert parse_client_msg('{"type": "get_context"}') == {"type": "get_context"}
+
+
+_VALID_EVENT = {"op": "replace_text", "segment_id": "s1",
+                "payload": {"text": "hi"}, "actor": "user"}
 
 
 @pytest.mark.parametrize("msg_type", ["preview_edit", "apply_edit"])
@@ -127,87 +202,7 @@ def test_edit_rejected_msg():
     }
 
 
-def test_user_message_may_request_top_logprobs():
-    msg = parse_client_msg(
-        '{"type": "user_message", "text": "hi", "top_k_logprobs": 5}')
-
-    assert msg["top_k_logprobs"] == 5
-
-
-def test_top_logprobs_request_must_be_a_non_negative_int():
-    for bad in ('"5"', "-1", "null"):
-        with pytest.raises(ValueError):
-            parse_client_msg(
-                '{"type": "user_message", "text": "hi", "top_k_logprobs": %s}' % bad)
-
-
-def test_parse_user_message_with_attachment_ids():
-    import json
-    raw = json.dumps({"type": "user_message", "text": "hey",
-                      "attachment_ids": ["abc123", "def456"]})
-    msg = parse_client_msg(raw)
-    assert msg == {"type": "user_message", "text": "hey",
-                   "attachment_ids": ["abc123", "def456"]}
-
-
-def test_parse_user_message_with_empty_attachment_ids():
-    assert parse_client_msg(
-        '{"type": "user_message", "text": "hi", "attachment_ids": []}'
-    ) == {"type": "user_message", "text": "hi", "attachment_ids": []}
-
-
-def test_parse_user_message_without_attachment_ids_still_valid():
-    # Existing wire clients that never send attachment_ids must stay valid.
-    assert parse_client_msg('{"type": "user_message", "text": "hey"}') == {
-        "type": "user_message", "text": "hey"}
-
-
-def test_parse_user_message_non_list_attachment_ids_rejected():
-    import json
-    import pytest
-    for bad in ("abc123", 5, {"a": 1}, None):
-        with pytest.raises(ValueError):
-            parse_client_msg(json.dumps(
-                {"type": "user_message", "text": "hey", "attachment_ids": bad}))
-
-
-def test_parse_user_message_non_string_items_in_attachment_ids_rejected():
-    import json
-    import pytest
-    with pytest.raises(ValueError):
-        parse_client_msg(json.dumps(
-            {"type": "user_message", "text": "hey", "attachment_ids": ["ok", 5]}))
-
-
-def test_done_msg_tool_limit_finish_reason():
-    assert done_msg("tool_limit") == {"type": "done", "finish_reason": "tool_limit"}
-
-
-def test_token_msg_text_override_suppresses_raw_text():
-    e = TokenEvent(token_id=9, text="<tool_call>{...}</tool_call>",
-                   top_logprobs={1: -0.5})
-    msg = token_msg(e, text="")
-    assert msg == {"type": "token", "token_id": 9, "text": "",
-                   "top_logprobs": {"1": -0.5}}
-
-
-def test_tool_call_msg():
-    msg = tool_call_msg("tc_0", "calculator", {"expression": "2+2"})
-    assert msg == {"type": "tool_call", "call_id": "tc_0", "name": "calculator",
-                   "arguments": {"expression": "2+2"}}
-
-
-def test_tool_result_msg_success():
-    msg = tool_result_msg("tc_0", "calculator", "4", error=False)
-    assert msg == {"type": "tool_result", "call_id": "tc_0", "name": "calculator",
-                   "result": "4", "error": False}
-
-
-def test_tool_result_msg_error():
-    msg = tool_result_msg("tc_0", "calculator", "error: bad expression", error=True)
-    assert msg["error"] is True
-    assert msg["result"] == "error: bad expression"
-
+# -- Inspection: on-demand measurement of the live context -------------------
 
 def test_parse_inspect_message_with_layers():
     msg = parse_client_msg('{"type": "inspect", "layers": [0, 5]}')
@@ -257,6 +252,8 @@ def test_context_msg_omits_edit_cost_when_not_supplied():
     assert "edit_cost" not in context_msg(ctx)["segments"][0]
 
 
+# -- Rewind: undo, over the wire --------------------------------------------
+
 def test_parse_rewind_with_explicit_target():
     msg = parse_client_msg('{"type": "rewind", "to_event": 3}')
     assert msg["to_event"] == 3
@@ -275,6 +272,8 @@ def test_parse_rewind_rejects_a_negative_target():
     with pytest.raises(ValueError):
         parse_client_msg('{"type": "rewind", "to_event": -1}')
 
+
+# -- Steering configuration over the wire ------------------------------------
 
 def test_parse_derive_steering():
     msg = parse_client_msg(json.dumps({
@@ -309,3 +308,29 @@ def test_config_msg_summarises_without_shipping_the_vector():
     assert m["name"] == "tone"
     entry = m["steering"][0]
     assert entry == {"layer": 18, "strength": 0.15, "label": "warm", "dim": 8}
+
+
+# -- opt-in per-token logprobs ----------------------------------------------
+
+def test_user_message_may_request_top_logprobs():
+    """The wire already carries `top_logprobs` on every token event, but the
+    server hardcoded top_k_logprobs=0, so the field was always empty and the
+    README's "per-token logprobs on the wire" was not actually reachable by any
+    client. Requesting it per turn keeps the default cheap."""
+    msg = parse_client_msg(
+        '{"type": "user_message", "text": "hi", "top_k_logprobs": 5}')
+
+    assert msg["top_k_logprobs"] == 5
+
+
+def test_top_logprobs_request_must_be_a_non_negative_int():
+    for bad in ('"5"', "-1", "null"):
+        with pytest.raises(ValueError):
+            parse_client_msg(
+                '{"type": "user_message", "text": "hi", "top_k_logprobs": %s}' % bad)
+
+
+def test_omitting_it_stays_valid_and_unset():
+    msg = parse_client_msg('{"type": "user_message", "text": "hi"}')
+
+    assert "top_k_logprobs" not in msg

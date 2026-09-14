@@ -311,3 +311,38 @@ def test_an_edit_that_lifts_the_gold_rank_without_reaching_top1_is_repaired(
     assert out["top1_agrees"] is True
     assert out["gold_after"]["rank"] < out["gold_before"]["rank"]
     assert out["verdict"] == "repaired"
+
+
+def test_sharpening_an_already_correct_answer_is_not_a_repair(fake_tokenizer):
+    """Measured on 42 clean-context cells: dropping distractors nudges the gold
+    logprob up by ~0.005-0.34 nats while the answer sits at rank 1 throughout.
+    Calling that "repaired" mislabelled 20 of the 42. Nothing was repaired --
+    the answer was correct before and after."""
+    GOLD = 7
+    model = _ScriptedModel({
+        (1, 2): _row({GOLD: 5.0, 1: 3.0, 3: 2.0}),        # gold already rank 1
+        (1,):   _row({GOLD: 5.05, 1: 3.0, 3: 2.0}),       # rank 1, slightly sharper
+    })
+    engine = Engine(model, fake_tokenizer)
+
+    out = engine.assess_edit([1, 2], [1], gold=GOLD)
+
+    assert out["gold_before"]["rank"] == out["gold_after"]["rank"] == 1
+    assert out["gold_delta"] > 0
+    assert out["verdict"] == "preserved"
+
+
+def test_a_small_dip_that_leaves_the_answer_first_is_not_damage(fake_tokenizer):
+    """The mirror. The verdict is about the answer's STANDING; a wobble in
+    probability that leaves gold at rank 1 has not changed the outcome."""
+    GOLD = 7
+    model = _ScriptedModel({
+        (1, 2): _row({GOLD: 5.0, 1: 3.0, 3: 2.0}),
+        (1,):   _row({GOLD: 4.94, 1: 3.0, 3: 2.0}),
+    })
+    engine = Engine(model, fake_tokenizer)
+
+    out = engine.assess_edit([1, 2], [1], gold=GOLD)
+
+    assert out["gold_delta"] < 0
+    assert out["verdict"] == "preserved"

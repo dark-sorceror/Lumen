@@ -21,11 +21,6 @@ from workbench.engine.taps import (apply_steering, attention_mass_by_segment,
                                    layer_count, logit_lens, top_k_logprobs)
 
 
-# Below this, a gold-logprob change is bookkeeping noise rather than a real
-# movement in the answer's standing.
-_GOLD_EPS = 1e-4
-
-
 @dataclass
 class GenParams:
     max_tokens: int = 512
@@ -532,13 +527,17 @@ class Engine:
         # rank 6732 (-11.5 nats) while the top-1 sat unchanged -- a top-1 rule
         # calls that "preserved".
         #
-        # Rank is the primary signal because it is scale-free and discrete; the
-        # logprob delta breaks ties within a rank.
-        if after["rank"] < before["rank"] or (
-            after["rank"] == before["rank"] and delta > _GOLD_EPS
-        ):
+        # The verdict is RANK ONLY. An unchanged rank is "preserved" however the
+        # probability wobbles: across 42 clean-context cells, dropping
+        # distractors nudged the gold logprob by +0.005 to +0.34 nats with the
+        # answer at rank 1 throughout, and letting the delta decide labelled 20
+        # of those 42 "repaired" when nothing had been repaired. It also removes
+        # the epsilon that decision needed -- a constant with no measurement
+        # behind it. The magnitudes travel in `kl` and `gold_delta` for anyone
+        # who needs to rank edits within a verdict.
+        if after["rank"] < before["rank"]:
             verdict = "repaired"
-        elif after["rank"] > before["rank"] or delta < -_GOLD_EPS:
+        elif after["rank"] > before["rank"]:
             verdict = "damaged"
         else:
             verdict = "preserved"

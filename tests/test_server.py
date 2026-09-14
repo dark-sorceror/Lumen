@@ -1,6 +1,3 @@
-from workbench.server.app import MAX_TOOL_ROUNDS
-from workbench.tools import ToolRegistry, default_registry
-from workbench.server.app import _attachment_type_allowed, _effective_mime, _sniff_ok
 import threading
 import time
 
@@ -10,7 +7,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from tests.conftest import FakeTokenizer
 from workbench.engine.engine import TokenEvent
-from workbench.server.app import create_app
+from workbench.server.app import MAX_TOOL_ROUNDS, create_app
+from workbench.tools import default_registry
 
 
 class ScriptedEngine:
@@ -168,6 +166,12 @@ def test_gen_stats_sent_first_with_correct_counts():
         assert ws.receive_json()["type"] == "token"
         assert ws.receive_json()["type"] == "token"
         assert ws.receive_json() == {"type": "done", "finish_reason": "stop"}
+
+
+def test_index_served():
+    r = make_client(ScriptedEngine()).get("/")
+    assert r.status_code == 200
+    assert "<html" in r.text.lower()
 
 
 @pytest.mark.timeout(10)
@@ -639,41 +643,6 @@ def test_generation_exception_closes_turn_before_error_and_done():
 
 # ---------------------------------------------------------------- attachments
 
-
-# ------------------------------- 400 not 500 on bad uploads
-
-
-# ------------------------------------- origin guard on POST
-
-
-# --------------------------------------- magic-byte sniffing
-
-
-# ------------------------------------------------- Native tool calling
-
-
-def _drain_turn(ws):
-    """Collect every message of one turn, up to and including `done`."""
-    msgs = []
-    while True:
-        msg = ws.receive_json()
-        msgs.append(msg)
-        if msg["type"] == "done":
-            return msgs
-
-
-# --------------------- User abort vs. watchdog abort ----------
-
-
-# --------------------- Control-queue draining across rounds ----
-
-
-def test_index_served():
-    r = make_client(ScriptedEngine()).get("/")
-    assert r.status_code == 200
-    assert "<html" in r.text.lower()
-
-
 @pytest.mark.timeout(10)
 def test_post_attachments_text_file_returns_id_and_metadata():
     client = make_client(ScriptedEngine())
@@ -719,6 +688,84 @@ def test_post_attachments_rejects_oversized_file():
     r = client.post("/attachments", files={
         "file": ("big.txt", oversized, "text/plain")})
     assert r.status_code == 413
+
+
+@pytest.mark.timeout(10)
+def test_attachment_doc_chunks_appear_before_user_msg_in_context():
+    """The uploaded attachment's extracted text must show up as doc_chunk
+    segment(s) in get_context, positioned before the user_msg segment (attachment chunks are appended BEFORE the user's
+    framed turn). Content here is digit-token text ("50 51") so it survives
+    FakeTokenizer.encode (which int()-parses whitespace-separated tokens,
+    same convention every other WS test in this file relies on)."""
+    engine = ScriptedEngine()
+    client = make_client(engine)
+    r = client.post("/attachments", files={
+        "file": ("notes.txt", b"50 51", "text/plain")})
+    attachment_id = r.json()["id"]
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7",
+                      "attachment_ids": [attachment_id]})
+        drain_until(ws, "done")
+        ws.send_json({"type": "get_context"})
+        msg = ws.receive_json()
+
+    assert msg["type"] == "context"
+    kinds = [s["kind"] for s in msg["segments"]]
+    # doc_chunk first, then the user frame (scratch, user_msg, scratch),
+    # then the assistant frame.
+    assert kinds == ["doc_chunk", "scratch", "user_msg", "scratch",
+                     "scratch", "assistant_msg", "scratch"]
+    doc_seg = msg["segments"][0]
+    # The extracted content ("50 51") is preserved verbatim,
+    # but the FIRST chunk of an attachment now carries a leading data/not-
+    # instructions delimiter -- assert containment (not exact equality) so
+    # this test survives that additive change.
+    from workbench.server.app import _ATTACHMENT_PREFACE
+    assert doc_seg["text"] == _ATTACHMENT_PREFACE + "50 51"
+    assert "50 51" in doc_seg["text"]
+    assert doc_seg["text"].startswith(_ATTACHMENT_PREFACE)
+    assert doc_seg["provenance"] == "attachment:notes.txt"
+    assert doc_seg["editable_by"] == "user"
+    user_idx = kinds.index("user_msg")
+    assert kinds.index("doc_chunk") < user_idx
+
+    # The engine's prompt must include the doc chunk's extracted-content
+    # tokens [50, 51] as a contiguous subsequence (the preface's English
+    # words now precede them as FakeTokenizer sentinel-999 tokens, so exact
+    # prefix equality no longer holds -- subsequence containment is the
+    # correct, non-weakened assertion here).
+    prompt0 = engine.prompts[0]
+    assert any(prompt0[i:i + 2] == [50, 51] for i in range(len(prompt0) - 1))
+
+
+@pytest.mark.timeout(10)
+def test_attachment_multiple_chunks_all_appended_in_order():
+    engine = ScriptedEngine()
+    client = make_client(engine)
+    # Two separate uploads, referenced in order.
+    r1 = client.post("/attachments", files={
+        "file": ("a.txt", b"11", "text/plain")})
+    r2 = client.post("/attachments", files={
+        "file": ("b.txt", b"22", "text/plain")})
+    id1, id2 = r1.json()["id"], r2.json()["id"]
+
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7",
+                      "attachment_ids": [id1, id2]})
+        drain_until(ws, "done")
+        ws.send_json({"type": "get_context"})
+        msg = ws.receive_json()
+
+    doc_chunks = [s for s in msg["segments"] if s["kind"] == "doc_chunk"]
+    # Each attachment's first (here, only) chunk is prefaced
+    # with the data/not-instructions delimiter -- assert the extracted
+    # content is present (substring) rather than exact chunk-text equality.
+    assert len(doc_chunks) == 2
+    assert doc_chunks[0]["text"].endswith("11")
+    assert doc_chunks[1]["text"].endswith("22")
+    from workbench.server.app import _ATTACHMENT_PREFACE
+    assert all(c["text"].startswith(_ATTACHMENT_PREFACE) for c in doc_chunks)
 
 
 @pytest.mark.timeout(10)
@@ -820,7 +867,6 @@ def test_post_attachments_png_magic_but_corrupt_body_returns_400():
     assert "could not process attachment" in r.json()["detail"]
 
 
-# ---- image mime recovery (pasted/"copied over" screenshots) ----------------
 # ---- image mime recovery (pasted/"copied over" screenshots) ----------------
 def test_detect_image_mime_signatures():
     from workbench.server.app import _detect_image_mime
@@ -965,85 +1011,6 @@ def test_sniff_ok_helper_direct():
 
 # ------------------------------------------------- Native tool calling
 
-
-@pytest.mark.timeout(10)
-def test_attachment_doc_chunks_appear_before_user_msg_in_context():
-    """The uploaded attachment's extracted text must show up as doc_chunk
-    segment(s) in get_context, positioned before the user_msg segment (attachment chunks are appended BEFORE the user's
-    framed turn). Content here is digit-token text ("50 51") so it survives
-    FakeTokenizer.encode (which int()-parses whitespace-separated tokens,
-    same convention every other WS test in this file relies on)."""
-    engine = ScriptedEngine()
-    client = make_client(engine)
-    r = client.post("/attachments", files={
-        "file": ("notes.txt", b"50 51", "text/plain")})
-    attachment_id = r.json()["id"]
-
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "user_message", "text": "7",
-                      "attachment_ids": [attachment_id]})
-        drain_until(ws, "done")
-        ws.send_json({"type": "get_context"})
-        msg = ws.receive_json()
-
-    assert msg["type"] == "context"
-    kinds = [s["kind"] for s in msg["segments"]]
-    # doc_chunk first, then the user frame (scratch, user_msg, scratch),
-    # then the assistant frame.
-    assert kinds == ["doc_chunk", "scratch", "user_msg", "scratch",
-                     "scratch", "assistant_msg", "scratch"]
-    doc_seg = msg["segments"][0]
-    # The extracted content ("50 51") is preserved verbatim,
-    # but the FIRST chunk of an attachment now carries a leading data/not-
-    # instructions delimiter -- assert containment (not exact equality) so
-    # this test survives that additive change.
-    from workbench.server.app import _ATTACHMENT_PREFACE
-    assert doc_seg["text"] == _ATTACHMENT_PREFACE + "50 51"
-    assert "50 51" in doc_seg["text"]
-    assert doc_seg["text"].startswith(_ATTACHMENT_PREFACE)
-    assert doc_seg["provenance"] == "attachment:notes.txt"
-    assert doc_seg["editable_by"] == "user"
-    user_idx = kinds.index("user_msg")
-    assert kinds.index("doc_chunk") < user_idx
-
-    # The engine's prompt must include the doc chunk's extracted-content
-    # tokens [50, 51] as a contiguous subsequence (the preface's English
-    # words now precede them as FakeTokenizer sentinel-999 tokens, so exact
-    # prefix equality no longer holds -- subsequence containment is the
-    # correct, non-weakened assertion here).
-    prompt0 = engine.prompts[0]
-    assert any(prompt0[i:i + 2] == [50, 51] for i in range(len(prompt0) - 1))
-
-
-@pytest.mark.timeout(10)
-def test_attachment_multiple_chunks_all_appended_in_order():
-    engine = ScriptedEngine()
-    client = make_client(engine)
-    # Two separate uploads, referenced in order.
-    r1 = client.post("/attachments", files={
-        "file": ("a.txt", b"11", "text/plain")})
-    r2 = client.post("/attachments", files={
-        "file": ("b.txt", b"22", "text/plain")})
-    id1, id2 = r1.json()["id"], r2.json()["id"]
-
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "user_message", "text": "7",
-                      "attachment_ids": [id1, id2]})
-        drain_until(ws, "done")
-        ws.send_json({"type": "get_context"})
-        msg = ws.receive_json()
-
-    doc_chunks = [s for s in msg["segments"] if s["kind"] == "doc_chunk"]
-    # Each attachment's first (here, only) chunk is prefaced
-    # with the data/not-instructions delimiter -- assert the extracted
-    # content is present (substring) rather than exact chunk-text equality.
-    assert len(doc_chunks) == 2
-    assert doc_chunks[0]["text"].endswith("11")
-    assert doc_chunks[1]["text"].endswith("22")
-    from workbench.server.app import _ATTACHMENT_PREFACE
-    assert all(c["text"].startswith(_ATTACHMENT_PREFACE) for c in doc_chunks)
-
-
 class ToolCallOnceEngine:
     """Session-API fake: on the FIRST generate_with_cache call, emits a
     single event whose text is a complete Hermes-style `<tool_call>...
@@ -1116,6 +1083,16 @@ class MalformedToolCallEngine:
 
     def trim_to(self, n):
         self.trims.append(n)
+
+
+def _drain_turn(ws):
+    """Collect every message of one turn, up to and including `done`."""
+    msgs = []
+    while True:
+        msg = ws.receive_json()
+        msgs.append(msg)
+        if msg["type"] == "done":
+            return msgs
 
 
 @pytest.mark.timeout(10)
@@ -1298,6 +1275,8 @@ def test_watchdog_aborts_generation_that_does_not_self_terminate():
     assert engine.calls == 2
 
 
+# --------------------- User abort vs. watchdog abort ----------
+
 class UserAbortMidToolCallEngine:
     """Round 1 streams a `<tool_call>` body WITHOUT its closing tag (so the
     watchdog cannot fire yet -- there's no `</tool_call>` to see), then
@@ -1353,6 +1332,8 @@ def test_user_abort_during_tools_turn_stops_and_does_not_execute():
     # Only one generation happened -- no second (tool-result) round.
     assert engine.calls == 1
 
+
+# --------------------- Control-queue draining across rounds ----
 
 class WatchdogLeakEngine:
     """Round 1 emits a complete tool_call whose closing `</tool_call>` lands on
