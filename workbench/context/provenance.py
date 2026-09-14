@@ -29,7 +29,14 @@ def superseded(segments: list[Segment], target: str) -> float:
 
     Structural supersession only -- two chunks of the same document, one newer.
     Deciding that two sentences disagree is a much larger problem and is
-    deliberately out of scope."""
+    deliberately out of scope.
+
+    Position is never consulted, only `revision`: "later" means a higher
+    revision of the same source, wherever that segment sits.
+
+    `source` is document-level, so an old-revision chunk is flagged even when
+    it covers a different section than the new-revision chunk that supersedes
+    it. That granularity is a limit of the signal, not a bug in it."""
     seg = _by_id(segments).get(target)
     if seg is None or not seg.provenance.source:
         return 0.0
@@ -43,10 +50,15 @@ def superseded(segments: list[Segment], target: str) -> float:
 
 
 def tainted(segments: list[Segment], target: str) -> float:
-    """1.0 when this segment was generated from something now superseded.
+    """1.0 when a now-superseded segment was in this segment's context.
 
-    Whether this beats chance is itself a thing to measure. It is recorded as
-    a signal, not assumed to be a good one."""
+    Not "generated from something superseded": see `referenced` for why
+    `derived_from` cannot support that claim.
+
+    ONE HOP ONLY. This does not recurse, so a reply built on a tainted reply
+    is not itself tainted. "Taint propagation" overstates what this computes;
+    it is a single-step check, and whether it beats chance is a thing to
+    measure rather than assume."""
     seg = _by_id(segments).get(target)
     if seg is None:
         return 0.0
@@ -55,7 +67,15 @@ def tainted(segments: list[Segment], target: str) -> float:
 
 
 def referenced(segments: list[Segment], target: str) -> float:
-    """1.0 when a later generation was conditioned on this segment."""
+    """1.0 when this segment was in the CONTEXT of a later generation.
+
+    Not "a later generation used it". `derived_from` records everything that
+    was in the projection, not what the model attended to or drew on, so this
+    is close to a positional fact: everything older than the most recent
+    assistant turn scores 1.0. It is therefore strongly collinear with
+    `depth`, and opposite in sign. The bench reports that correlation, because
+    at high r a composite win here is not evidence for provenance over
+    recency -- it may be recency under another name."""
     if target not in _by_id(segments):
         return 0.0
     return 1.0 if any(target in s.provenance.derived_from
@@ -63,10 +83,13 @@ def referenced(segments: list[Segment], target: str) -> float:
 
 
 def authored_by_asker(segments: list[Segment], target: str) -> float:
-    """1.0 when this segment shares an author with the newest segment.
+    """1.0 when this segment shares an author with the NEWEST segment.
 
-    In a shared context the live question's author is the one whose earlier
-    material is most likely load-bearing for it."""
+    "The asker" holds only where the context ends on a user turn. If the
+    newest segment is an assistant reply, this scores every model-authored
+    segment 1.0 and every user-authored one 0.0, which is not what the name
+    suggests. The bench's cases end on the live question, so the precondition
+    holds there; it does not hold in general."""
     index = _by_id(segments)
     seg = index.get(target)
     if seg is None or not segments:

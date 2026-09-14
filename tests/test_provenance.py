@@ -183,7 +183,7 @@ def test_a_generation_from_current_segments_is_not_tainted():
     assert tainted(segs, "c") == 0.0
 
 
-def test_a_segment_a_later_generation_used_is_referenced():
+def test_a_segment_in_a_later_generations_context_is_referenced():
     segs = [_seg("a"), _seg("c", author="model", derived_from=("a",))]
 
     assert referenced(segs, "a") == 1.0
