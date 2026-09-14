@@ -25,7 +25,8 @@ from fastapi.staticfiles import StaticFiles
 from workbench.attachments import kind_for_mime, process_attachment
 from workbench.attachments import store as attachment_store
 from workbench.context.manager import ContextManager
-from workbench.context.model import ContextObject, EditEvent, Editor, Segment, SegmentKind
+from workbench.context.model import (ContextObject, EditEvent, Editor, Provenance, Segment,
+                                     SegmentKind)
 from workbench.engine.control import Control, ControlQueue
 from workbench.engine.engine import GenParams
 import os
@@ -656,9 +657,15 @@ def create_app(engine, tokenizer, tool_registry: ToolRegistry | None = None,
                     # whole loop, not just this round).
                     ctx.apply(EditEvent(op="delete", segment_id=current_gen_prompt_seg.id,
                                         payload={}, actor="server"))
+                    produced_from = tuple(
+                        s.id for s in ctx.segments
+                        if s.kind is not SegmentKind.SCRATCH)
                     _append_framed_message(
-                        ctx, frame_message(tokenizer, "assistant", "".join(parts)),
-                        content_actor="model")
+                        ctx, frame_message(
+                            tokenizer, "assistant", "".join(parts),
+                            provenance=Provenance(author="model",
+                                                  derived_from=produced_from)),
+                        content_actor="server")
 
                 if failed:
                     if not socket_closed:

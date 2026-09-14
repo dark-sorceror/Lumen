@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 import weakref
 
-from workbench.context.model import Editor, Segment, SegmentKind
+from workbench.context.model import Editor, Provenance, Segment, SegmentKind
 
 _ROLE_KIND = {
     "user": SegmentKind.USER_MSG,
@@ -74,19 +74,26 @@ def _framing_for_role(tokenizer, role: str) -> tuple[str, str]:
     return prefix, suffix
 
 
-def frame_message(tokenizer, role: str, text: str) -> list[Segment]:
+def frame_message(tokenizer, role: str, text: str,
+                  provenance: Provenance | None = None) -> list[Segment]:
     """Returns [prefix SCRATCH, content <role>_MSG, suffix SCRATCH] segments.
     The two SCRATCH segments carry the chat-template framing around `text`
     and are not editable by anyone (editable_by=NONE); the content segment
-    is editable_by=BOTH regardless of role."""
+    is editable_by=BOTH regardless of role.
+
+    `provenance` overrides the content segment's role default, which is how a
+    caller records what a generation was conditioned on. The SCRATCH segments
+    keep provenance="framing" regardless: that text is the template's, not the
+    speaker's, and attributing it to whoever happens to be talking would put
+    framing into every ranking that reads authorship."""
     prefix_text, suffix_text = _framing_for_role(tokenizer, role)
     kind = _ROLE_KIND[role]
-    provenance = _ROLE_PROVENANCE[role]
+    content_provenance = provenance or _ROLE_PROVENANCE[role]
     return [
         Segment(id=uuid.uuid4().hex, kind=SegmentKind.SCRATCH, text=prefix_text,
                editable_by=Editor.NONE, provenance="framing"),
         Segment(id=uuid.uuid4().hex, kind=kind, text=text,
-               editable_by=Editor.BOTH, provenance=provenance),
+               editable_by=Editor.BOTH, provenance=content_provenance),
         Segment(id=uuid.uuid4().hex, kind=SegmentKind.SCRATCH, text=suffix_text,
                editable_by=Editor.NONE, provenance="framing"),
     ]

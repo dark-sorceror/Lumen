@@ -216,6 +216,34 @@ def test_engine_prompt_comes_from_framed_context():
 
 
 @pytest.mark.timeout(10)
+def test_assistant_reply_records_what_it_was_derived_from(monkeypatch):
+    # The wire format carries provenance as its legacy string, so read the
+    # structured record off the server-side context instead.
+    from workbench.server import app as app_module
+    made = []
+
+    class RecordingContext(app_module.ContextObject):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            made.append(self)
+
+    monkeypatch.setattr(app_module, "ContextObject", RecordingContext)
+    with make_client(ScriptedEngine()).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user_message", "text": "7"})
+        drain_until(ws, "done")
+        ws.send_json({"type": "user_message", "text": "8"})
+        drain_until(ws, "done")
+
+    segs = [s for s in made[0].segments if s.kind.value != "scratch"]
+    first_user, first_reply, second_user, second_reply = segs
+    assert first_reply.provenance.derived_from == (first_user.id,)
+    # The second reply was conditioned on everything before it, in order,
+    # and never on scratch framing.
+    assert second_reply.provenance.derived_from == (
+        first_user.id, first_reply.id, second_user.id)
+
+
+@pytest.mark.timeout(10)
 def test_get_context_returns_framed_segments():
     with make_client(ScriptedEngine()).websocket_connect("/ws") as ws:
         ws.send_json({"type": "user_message", "text": "7"})

@@ -1,8 +1,8 @@
 import pytest
 
 from workbench.context.manager import ContextManager
-from workbench.context.model import (ContextObject, Editor, SegmentKind,
-                                     append_event)
+from workbench.context.model import (ContextObject, Editor, Provenance,
+                                     SegmentKind, append_event)
 from workbench.server.framing import (frame_message, frame_tool_result,
                                       generation_prompt_segment)
 
@@ -214,3 +214,22 @@ def test_framed_2turn_conversation_matches_real_chat_template():
     expected = tokenizer.apply_chat_template(
         [msg1, reply1, msg2], tokenize=True, add_generation_prompt=True)
     assert tc.tokens == expected
+
+
+def test_a_content_segment_can_carry_a_caller_supplied_provenance(fake_tokenizer):
+    """Only the content segment. The SCRATCH framing is the template's, not
+    the speaker's, and must stay provenance="framing" whoever is talking."""
+    prov = Provenance(author="model", derived_from=("s0", "s1"))
+
+    prefix, content, suffix = frame_message(
+        fake_tokenizer, "assistant", "5 6", provenance=prov)
+
+    assert content.provenance == prov
+    assert prefix.provenance.author == "framing"
+    assert suffix.provenance.author == "framing"
+
+
+def test_framing_without_a_provenance_is_unchanged(fake_tokenizer):
+    _, content, _ = frame_message(fake_tokenizer, "assistant", "5 6")
+
+    assert content.provenance.author == "model"
