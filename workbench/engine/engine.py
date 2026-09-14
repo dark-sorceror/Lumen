@@ -390,14 +390,9 @@ class Engine:
         policy can move probability mass around considerably without changing
         what the model actually says next, and only the second one is a
         behaviour change."""
-        lp_a = self.next_logprobs(tokens_a)
-        lp_b = self.next_logprobs(tokens_b)
-        p_a = mx.exp(lp_a)
-        kl = float((p_a * (lp_a - lp_b)).sum().item())
-        return {
-            "kl": max(0.0, kl),          # clamp: exact-equality can land at -0.0
-            "top1_agrees": int(mx.argmax(lp_a).item()) == int(mx.argmax(lp_b).item()),
-        }
+        # clamp inside _divergence_from: exact equality can land at -0.0
+        return self._divergence_from(self.next_logprobs(tokens_a),
+                                     self.next_logprobs(tokens_b))
 
     def attention_mass(
         self,
@@ -488,10 +483,19 @@ class Engine:
         from the full context", this asks "did it get the answer right" -- and
         those are different questions the moment the full context is itself
         wrong."""
-        lp = self.next_logprobs(tokens)
-        logprob = float(lp[gold].item())
-        rank = int((lp > lp[gold]).sum().item()) + 1
-        return {"logprob": logprob, "rank": rank}
+        return self._gold_from(self.next_logprobs(tokens), gold)
+
+    @staticmethod
+    def _gold_from(lp: mx.array, gold: int) -> dict:
+        return {"logprob": float(lp[gold].item()),
+                "rank": int((lp > lp[gold]).sum().item()) + 1}
+
+    @staticmethod
+    def _divergence_from(lp_a: mx.array, lp_b: mx.array) -> dict:
+        p_a = mx.exp(lp_a)
+        kl = float((p_a * (lp_a - lp_b)).sum().item())
+        return {"kl": max(0.0, kl),
+                "top1_agrees": int(mx.argmax(lp_a).item()) == int(mx.argmax(lp_b).item())}
 
     def assess_edit(self, full: list[int], pruned: list[int], gold: int) -> dict:
         """Judge an edit on two coordinates, because one is not enough.
@@ -510,10 +514,15 @@ class Engine:
         distributional movement. A large `kl` together with `verdict ==
         "repaired"` is the signature of a poisoned context -- and neither number
         can report that on its own."""
-        before = self.gold_score(full, gold)
-        after = self.gold_score(pruned, gold)
+        # Both coordinates are functions of the SAME two logprob vectors, so
+        # they are computed once each. Calling gold_score twice and then
+        # divergence would run four forward passes for two distributions.
+        lp_full = self.next_logprobs(full)
+        lp_pruned = self.next_logprobs(pruned)
+        before = self._gold_from(lp_full, gold)
+        after = self._gold_from(lp_pruned, gold)
         delta = after["logprob"] - before["logprob"]
-        moved = self.divergence(full, pruned)
+        moved = self._divergence_from(lp_full, lp_pruned)
 
         # The verdict keys on the GOLD ANSWER'S STANDING, not on the top-1.
         # Keying it on the top-1 was wrong in the case that matters most: on a
