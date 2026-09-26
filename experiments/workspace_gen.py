@@ -28,6 +28,13 @@ _FACTS = [
     ("the writer timeout is 340 ms", "340", "900"),
     ("the canary version is 2.9", "2.9", "2.4"),
     ("the pool ceiling is 64 connections", "64", "16"),
+    ("the cache ttl is 45 seconds", "45", "120"),
+    ("the shard count is 12", "12", "8"),
+    ("the backoff cap is 30 seconds", "30", "60"),
+    ("the queue depth limit is 500", "500", "200"),
+    ("the rollout wave is 3", "3", "5"),
+    ("the heartbeat interval is 7 seconds", "7", "15"),
+    ("the leader lease is 20 seconds", "20", "50"),
 ]
 
 _NOISE = [
@@ -75,21 +82,28 @@ def generate(seed: int, n_authors: int = 3, n_distractors: int = 6) -> Case:
                 f"{claim.replace(right, wrong)}.",
                 authors[1 % len(authors)], source=source, revision=1)
 
-    for i in range(n_distractors // 2):
-        add(SegmentKind.USER_MSG, rng.choice(_NOISE),
-            authors[(i + 1) % len(authors)])
+    # Everything after the stale chunk is shuffled into place, so the
+    # correction's slot and author are drawn from the seed rather than fixed:
+    # a fixed layout would make a sweep measure the layout, not the ranker.
+    # The correction may be written by the asker or by anyone else, and noise
+    # authors are drawn freely so authorship is no proxy for "is noise".
+    later = [("noise", rng.choice(_NOISE), rng.choice(authors))
+             for _ in range(n_distractors)]
+    later.insert(rng.randint(0, len(later)), ("reply", None, "model"))
+    later.insert(rng.randint(0, len(later)),
+                 ("correction", f"{claim}.", rng.choice(authors)))
 
-    # A reply conditioned on the stale chunk: the taint edge the ranker can see
-    # and neither recency nor attention mass can.
-    add(SegmentKind.ASSISTANT_MSG, f"Going by the runbook, {wrong}.",
-        "model", derived_from=(stale,))
-
-    add(SegmentKind.DOC_CHUNK, f"{claim}.",
-        authors[2 % len(authors)], source=source, revision=2)
-
-    for i in range(n_distractors - n_distractors // 2):
-        add(SegmentKind.USER_MSG, rng.choice(_NOISE),
-            authors[(i + 2) % len(authors)])
+    for what, text, author in later:
+        if what == "noise":
+            add(SegmentKind.USER_MSG, text, author)
+        elif what == "reply":
+            # A reply conditioned on the stale chunk: the taint edge the
+            # ranker can see and neither recency nor attention mass can.
+            add(SegmentKind.ASSISTANT_MSG, f"Going by the runbook, {wrong}.",
+                author, derived_from=(stale,))
+        else:
+            add(SegmentKind.DOC_CHUNK, text, author,
+                source=source, revision=2)
 
     question = f"In one word, is {claim.split(' is ')[0]} {right} or {wrong}?"
     q = add(SegmentKind.USER_MSG, question, asker)

@@ -59,3 +59,27 @@ def test_no_headroom_when_every_policy_agrees():
 def test_require_headroom_raises_rather_than_returning_a_flat_table():
     with pytest.raises(HeadroomError, match="no headroom"):
         require_headroom({"recency": True, "provenance": True})
+
+
+def test_the_correction_does_not_sit_at_a_fixed_rank_across_seeds():
+    """The generator must not predetermine the answer.
+
+    If the load-bearing segment always lands in the same place with the same
+    author, a sweep measures the layout rather than the ranker — the trap
+    docs/lab-notes.md escaped by placing the fact at each contested slot in
+    turn. This asserts the layout actually moves; it says nothing about
+    whether any policy ranks it well, which is Task 6's question."""
+    from workbench.context.provenance import score_all
+
+    outranked = set()
+    authors = set()
+    for seed in range(12):
+        case = generate(seed=seed)
+        scores = score_all(case.segments)
+        correction = [s for s in case.segments if s.provenance.revision == 2][0]
+        outranked.add(sum(1 for s in case.segments
+                          if scores[s.id] > scores[correction.id]))
+        authors.add(correction.provenance.author)
+
+    assert len(outranked) > 1, f"correction always outranked by {outranked}"
+    assert len(authors) > 1, f"correction always authored by {authors}"
