@@ -15,7 +15,7 @@ from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 
 from workbench.context.manager import _common_prefix_len
 from workbench.context.eviction import (keep_by_attention, keep_by_recency,
-                                        rebuild_tokens)
+                                        keep_by_score, rebuild_tokens)
 from workbench.engine.taps import (apply_steering, attention_mass_by_segment,
                                    capture_attention, capture_layer_outputs,
                                    layer_count, logit_lens, top_k_logprobs)
@@ -430,13 +430,20 @@ class Engine:
         budget: int,
         layers: list[int] | None = None,
         pinned: tuple[str, ...] = (),
+        rankings: dict[str, dict[str, float]] | None = None,
     ) -> dict[str, dict]:
         """Score each eviction policy by what its drop costs at the readout.
 
         Every policy is compared against the SAME full-context distribution, so
         the numbers are commensurable. `pinned` segments are always kept and
         still charged against the budget -- typically the live query, which no
-        sane policy evicts and whose removal would swamp every other effect."""
+        sane policy evicts and whose removal would swamp every other effect.
+
+        `rankings` adds one candidate per entry, scored against the same
+        full-context distribution as the built-in policies and filling the same
+        budget. A model-free ranker (provenance, say) is supplied this way
+        rather than being wired in here, so the decision stays testable apart
+        from the evaluation."""
         raw = self.attention_mass(tokens, spans, layers)
         nosink = self.attention_mass(tokens, spans, layers, exclude_sink=True)
 
@@ -455,6 +462,10 @@ class Engine:
             "attention": keep_by_attention(contested, raw, room),
             "attention_nosink": keep_by_attention(contested, nosink, room),
         }
+        for name, scores in (rankings or {}).items():
+            if name in candidates:
+                raise ValueError(f"ranking {name!r} shadows a built-in policy")
+            candidates[name] = keep_by_score(contested, scores, room)
         out: dict[str, dict] = {}
         for name, kept in candidates.items():
             kept = kept | pinned
@@ -465,9 +476,7 @@ class Engine:
                 "n_tokens": len(pruned),
                 "kl": scored["kl"],
                 "top1_agrees": scored["top1_agrees"],
-                "mass": {"raw": raw, "nosink": nosink}[
-                    "nosink" if name.endswith("nosink") else "raw"
-                ],
+                "mass": nosink if name.endswith("nosink") else raw,
             }
         return out
 

@@ -42,6 +42,23 @@ def keep_by_recency(spans: dict[str, tuple[int, int]], budget: int) -> set[str]:
     return _fill(newest_first, spans, budget)
 
 
+def keep_by_score(
+    spans: dict[str, tuple[int, int]],
+    scores: dict[str, float],
+    budget: int,
+) -> set[str]:
+    """Keep the highest-scoring segments that fit, in score order.
+
+    The generic form of the ranked fill: a policy supplies a number per
+    segment and this spends the budget on them. The score decides the ORDER,
+    never the membership -- with room for everything, everything is kept, so a
+    penalised segment is dropped by the budget and not by its sign. Segments
+    with no score sort last rather than raising."""
+    richest_first = sorted(spans, key=lambda sid: scores.get(sid, float("-inf")),
+                           reverse=True)
+    return _fill(richest_first, spans, budget)
+
+
 def keep_by_attention(
     spans: dict[str, tuple[int, int]],
     mass: dict[str, float],
@@ -53,8 +70,7 @@ def keep_by_attention(
     outranks a short one -- the question is how much of the model's attention
     the segment holds, not how efficiently it holds it. Segments with no
     measurement sort last rather than raising."""
-    richest_first = sorted(spans, key=lambda sid: mass.get(sid, 0.0), reverse=True)
-    return _fill(richest_first, spans, budget)
+    return keep_by_score(spans, mass, budget)
 
 
 def rebuild_tokens(

@@ -346,3 +346,69 @@ def test_a_small_dip_that_leaves_the_answer_first_is_not_damage(fake_tokenizer):
 
     assert out["gold_delta"] < 0
     assert out["verdict"] == "preserved"
+
+
+from workbench.context.eviction import keep_by_score
+
+
+SCORES = {"sys": -1.0, "a": 2.0, "b": 0.5, "c": 1.5}
+
+
+def test_score_ranking_takes_the_highest_scoring_that_fit():
+    kept = keep_by_score(SPANS, SCORES, budget=40)
+
+    # 'a' (20) then 'c' (20) = 40; 'b' and 'sys' would overflow.
+    assert kept == {"a", "c"}
+
+
+def test_a_negative_score_still_sorts_last_rather_than_being_dropped():
+    # With room for everything, even a penalised segment is kept: the budget
+    # decides what is dropped, the score only decides the order.
+    kept = keep_by_score(SPANS, SCORES, budget=60)
+
+    assert kept == {"sys", "a", "b", "c"}
+
+
+def test_an_unscored_segment_sorts_last_rather_than_raising():
+    kept = keep_by_score(SPANS, {"a": 1.0}, budget=20)
+
+    assert kept == {"a"}
+
+
+def test_attention_ranking_is_score_ranking():
+    assert keep_by_attention(SPANS, MASS, budget=30) == keep_by_score(
+        SPANS, MASS, budget=30)
+
+
+def test_an_unscored_segment_does_not_outrank_a_penalised_one():
+    # The reason the sentinel is -inf and not 0.0: 'sys' is penalised, 'b' has
+    # no score at all, and only one 10-token segment fits.
+    kept = keep_by_score(SPANS, {"sys": -1.0}, budget=10)
+
+    assert kept == {"sys"}
+
+
+def test_a_supplied_ranking_is_a_candidate_filling_the_same_room(
+    fake_layered_model, fake_tokenizer
+):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    spans = {"a": (0, 2), "b": (2, 4), "q": (4, 6)}
+
+    out = engine.evaluate_eviction(
+        [1, 2, 3, 4, 5, 6], spans, budget=4, pinned=("q",),
+        rankings={"prov": {"a": 1.0, "b": 2.0}})
+
+    assert set(out) == {"recency", "attention", "attention_nosink", "prov"}
+    assert out["prov"]["kept"] == {"b", "q"}   # ranked 'b' first, same room as the rest
+    assert out["prov"]["n_tokens"] == out["recency"]["n_tokens"] == 4
+
+
+def test_a_supplied_ranking_may_not_shadow_a_builtin_policy(
+    fake_layered_model, fake_tokenizer
+):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    spans = {"a": (0, 2), "b": (2, 4)}
+
+    with pytest.raises(ValueError, match="shadows"):
+        engine.evaluate_eviction([1, 2, 3, 4], spans, budget=2,
+                                 rankings={"recency": {"a": 1.0}})
