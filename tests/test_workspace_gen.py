@@ -7,7 +7,7 @@ discovered afterwards in a flat table."""
 import pytest
 
 from experiments.workspace_gen import (
-    Case,
+    _FACTS,
     HeadroomError,
     generate,
     has_headroom,
@@ -19,8 +19,15 @@ def test_a_case_is_reproducible_from_its_seed():
     a = generate(seed=7)
     b = generate(seed=7)
 
+    def shape(case):
+        return [(s.id, s.kind, s.provenance.author, s.provenance.source,
+                 s.provenance.revision, s.provenance.derived_from)
+                for s in case.segments]
+
     assert [s.text for s in a.segments] == [s.text for s in b.segments]
+    assert shape(a) == shape(b)
     assert a.gold_text == b.gold_text
+    assert a.pinned == b.pinned
 
 
 def test_different_seeds_give_different_cases():
@@ -61,25 +68,50 @@ def test_require_headroom_raises_rather_than_returning_a_flat_table():
         require_headroom({"recency": True, "provenance": True})
 
 
-def test_the_correction_does_not_sit_at_a_fixed_rank_across_seeds():
+def test_the_correction_does_not_sit_at_a_fixed_slot_or_role():
     """The generator must not predetermine the answer.
 
-    If the load-bearing segment always lands in the same place with the same
-    author, a sweep measures the layout rather than the ranker — the trap
-    docs/lab-notes.md escaped by placing the fact at each contested slot in
-    turn. This asserts the layout actually moves; it says nothing about
-    whether any policy ranks it well, which is Task 6's question."""
-    from workbench.context.provenance import score_all
+    If the load-bearing segment always lands in the same place, or always
+    belongs to the asker (or always does not), a sweep measures the layout
+    rather than the ranker -- the trap docs/lab-notes.md escaped by placing
+    the fact at each contested slot in turn.
 
-    outranked = set()
-    authors = set()
+    This asserts the SLOT and the asker ROLE both move. An earlier version
+    asserted author NAMES and an outranked COUNT, and both pass under the
+    original fixed layout: names vary because the author list is shuffled per
+    seed, and the count varies because noise authorship varies. It says
+    nothing about whether any policy ranks the correction well, which is the
+    bench's question rather than the generator's."""
+    slots = set()
+    asker_roles = set()
     for seed in range(12):
         case = generate(seed=seed)
-        scores = score_all(case.segments)
-        correction = [s for s in case.segments if s.provenance.revision == 2][0]
-        outranked.add(sum(1 for s in case.segments
-                          if scores[s.id] > scores[correction.id]))
-        authors.add(correction.provenance.author)
+        ids = [s.id for s in case.segments]
+        correction = next(s for s in case.segments if s.provenance.revision == 2)
+        asker = next(s for s in case.segments
+                     if s.id == case.pinned[0]).provenance.author
+        slots.add(ids.index(correction.id))
+        asker_roles.add(correction.provenance.author == asker)
 
-    assert len(outranked) > 1, f"correction always outranked by {outranked}"
-    assert len(authors) > 1, f"correction always authored by {authors}"
+    assert len(slots) > 1, f"correction always at slot {slots}"
+    assert len(asker_roles) > 1, (
+        f"correction's asker role never varies: always "
+        f"{'the asker' if True in asker_roles else 'a non-asker'}")
+
+
+def test_the_stale_chunk_is_older_earlier_and_the_reply_derives_from_it():
+    for seed in range(12):
+        case = generate(seed=seed)
+        ids = [s.id for s in case.segments]
+        stale = next(s for s in case.segments if s.provenance.revision == 1)
+        correction = next(s for s in case.segments if s.provenance.revision == 2)
+
+        assert stale.provenance.revision < correction.provenance.revision
+        assert ids.index(stale.id) < ids.index(correction.id)
+        assert any(stale.id in s.provenance.derived_from for s in case.segments)
+
+
+@pytest.mark.parametrize("claim,right,wrong", _FACTS)
+def test_every_fact_can_be_split_into_a_question_without_leaking(claim, right, wrong):
+    assert " is " in claim, f"{claim!r} would leak the answer into the question"
+    assert right != wrong
