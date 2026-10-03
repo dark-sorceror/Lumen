@@ -473,6 +473,12 @@ class Engine:
             "attention_nosink": (
                 keep_by_attention(contested, nosink, room), nosink),
         }
+        # Keeps the hoisted shadow check honest: it validates names against
+        # _BUILTIN_POLICIES before this dict exists, so the two must agree or a
+        # new built-in could be shadowed silently by a caller's ranking.
+        assert set(candidates) == set(_BUILTIN_POLICIES), (
+            f"_BUILTIN_POLICIES {sorted(_BUILTIN_POLICIES)} does not match the "
+            f"built-in candidates {sorted(candidates)}")
         for name, scores in (rankings or {}).items():
             candidates[name] = (keep_by_score(contested, scores, room), raw)
         out: dict[str, dict] = {}
