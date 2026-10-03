@@ -227,3 +227,18 @@ def test_score_all_covers_every_segment_and_stays_finite():
 
 def test_every_signal_has_a_weight_and_every_weight_a_signal():
     assert set(DEFAULT_WEIGHTS) == set(SIGNALS)
+
+
+def test_a_non_int_revision_is_refused():
+    with pytest.raises(TypeError):
+        Provenance.coerce({"author": "u", "revision": "2"})
+
+
+def test_a_bool_revision_is_refused():
+    with pytest.raises(TypeError):
+        Provenance.coerce({"author": "u", "revision": True})
+
+
+def test_an_unknown_key_names_itself():
+    with pytest.raises(TypeError, match="nonsense"):
+        Provenance.coerce({"author": "u", "nonsense": 1})

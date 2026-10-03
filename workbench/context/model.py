@@ -3,7 +3,7 @@ emphasis sliders, and the model's self-edit tools all operate on."""
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 
 
@@ -81,6 +81,14 @@ class Provenance:
                 raise TypeError(
                     "provenance derived_from must be a sequence of segment ids")
             data["derived_from"] = tuple(derived)
+            # bool is an int subclass; True would pass as revision 1.
+            revision = data.get("revision", 0)
+            if isinstance(revision, bool) or not isinstance(revision, int):
+                raise TypeError("provenance revision must be an int")
+            unknown = set(data) - {f.name for f in fields(cls)}
+            if unknown:
+                raise TypeError(
+                    f"unknown provenance key {sorted(unknown)[0]!r}")
             return cls(**data)
         raise TypeError(f"cannot read provenance from {type(value).__name__}")
 
