@@ -412,3 +412,20 @@ def test_a_supplied_ranking_may_not_shadow_a_builtin_policy(
     with pytest.raises(ValueError, match="shadows"):
         engine.evaluate_eviction([1, 2, 3, 4], spans, budget=2,
                                  rankings={"recency": {"a": 1.0}})
+
+
+def test_a_ranking_named_nosink_does_not_receive_nosink_mass(
+    fake_layered_model, fake_tokenizer
+):
+    engine = Engine(fake_layered_model, fake_tokenizer)
+    tokens = [1, 2, 3, 4]
+    spans = {"a": (0, 2), "b": (2, 4)}
+
+    out = engine.evaluate_eviction(
+        tokens, spans, budget=2, rankings={"anything_nosink": {"a": 1.0}})
+
+    raw = engine.attention_mass(tokens, spans, None)
+    nosink = engine.attention_mass(tokens, spans, None, exclude_sink=True)
+    assert raw != nosink   # otherwise the assertion below proves nothing
+    assert out["anything_nosink"]["mass"] == raw
+    assert out["attention_nosink"]["mass"] == nosink

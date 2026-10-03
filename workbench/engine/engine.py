@@ -457,17 +457,21 @@ class Engine:
         contested = {sid: sp for sid, sp in spans.items() if sid not in pinned}
         room = max(0, budget - reserved)
 
+        # Each candidate carries the mass it was ranked on. Supplied rankings
+        # were not ranked on attention at all, so they report `raw`: the key is
+        # a common reference signal there, not the policy's own.
         candidates = {
-            "recency": keep_by_recency(contested, room),
-            "attention": keep_by_attention(contested, raw, room),
-            "attention_nosink": keep_by_attention(contested, nosink, room),
+            "recency": (keep_by_recency(contested, room), raw),
+            "attention": (keep_by_attention(contested, raw, room), raw),
+            "attention_nosink": (
+                keep_by_attention(contested, nosink, room), nosink),
         }
         for name, scores in (rankings or {}).items():
             if name in candidates:
                 raise ValueError(f"ranking {name!r} shadows a built-in policy")
-            candidates[name] = keep_by_score(contested, scores, room)
+            candidates[name] = (keep_by_score(contested, scores, room), raw)
         out: dict[str, dict] = {}
-        for name, kept in candidates.items():
+        for name, (kept, mass) in candidates.items():
             kept = kept | pinned
             pruned = rebuild_tokens(tokens, spans, kept)
             scored = self.divergence(tokens, pruned)
@@ -476,7 +480,7 @@ class Engine:
                 "n_tokens": len(pruned),
                 "kl": scored["kl"],
                 "top1_agrees": scored["top1_agrees"],
-                "mass": nosink if name.endswith("nosink") else raw,
+                "mass": mass,
             }
         return out
 
