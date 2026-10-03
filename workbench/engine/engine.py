@@ -44,6 +44,9 @@ class TokenEvent:
     finish_reason: str | None = None
 
 
+_BUILTIN_POLICIES = ("recency", "attention", "attention_nosink")
+
+
 class Engine:
     # Mirrors mlx-lm's `prefill_step_size` default: chunk long prompts so we
     # never materialize [1, n, vocab] logits for the whole prompt at once —
@@ -444,6 +447,10 @@ class Engine:
         budget. A model-free ranker (provenance, say) is supplied this way
         rather than being wired in here, so the decision stays testable apart
         from the evaluation."""
+        # Validate before the forward passes: a typo'd name should not cost two.
+        for name in rankings or {}:
+            if name in _BUILTIN_POLICIES:
+                raise ValueError(f"ranking {name!r} shadows a built-in policy")
         raw = self.attention_mass(tokens, spans, layers)
         nosink = self.attention_mass(tokens, spans, layers, exclude_sink=True)
 
@@ -467,8 +474,6 @@ class Engine:
                 keep_by_attention(contested, nosink, room), nosink),
         }
         for name, scores in (rankings or {}).items():
-            if name in candidates:
-                raise ValueError(f"ranking {name!r} shadows a built-in policy")
             candidates[name] = (keep_by_score(contested, scores, room), raw)
         out: dict[str, dict] = {}
         for name, (kept, mass) in candidates.items():
