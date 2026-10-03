@@ -27,14 +27,13 @@ from experiments.workspace_gen import (
     scored,
 )
 
-# Chosen from `--band` on the 0.6B over the 48-case grid (see the Task 7 report),
-# not inherited: the old (0.4, 0.55, 0.7) was picked against an unframed
-# ~100-token context. The framing, the sys turn, the question and the header
-# are reserved off the top, so below ~0.55 the correction survives under no
-# policy (<=38%) and every cell is uniform, while from 0.60 the policies
-# separate on whether the poison is dropped. Above ~0.90 everything is kept.
-# Re-run `--band` if the corpus or the pinned turns change.
-BUDGET_FRACTIONS = (0.6, 0.7, 0.8)
+# Re-measured with `--band` on 2026-10-04: at 0.60 and 0.70 the correction
+# survives under no policy, so every cell there is uniform and carries no
+# ordering; 0.75 and 0.80 separate the policies and 0.85 replaces the dead
+# cell. (The earlier 0.6-0.8 band was picked on the 0.6B and the old
+# (0.4, 0.55, 0.7) against an unframed ~100-token context.) Above ~0.90
+# nothing is dropped. Re-run `--band` if the corpus or the pinned turns change.
+BUDGET_FRACTIONS = (0.75, 0.80, 0.85)
 
 SMOKE_BANNER = "PLUMBING ONLY — this run makes no claim about any ranker."
 
@@ -149,13 +148,17 @@ def run(engine, tokenizer, grid, fractions=BUDGET_FRACTIONS,
     headroom anywhere raises."""
     rows: list[dict] = []
     stats = {"cases": 0, "skipped": 0, "cells": 0, "flat": 0,
-             "full_right": 0, "continuation_tokens": n_tokens}
+             "full_right": 0, "truncated": 0, "truncated_cells": 0,
+             "continuation_tokens": n_tokens}
     for case in grid:
         stats["cases"] += 1
         tokenized = _tokenize(case, tokenizer)
         full = scored(engine, tokenizer, tokenized.tokens, case.answer_word,
                       case.wrong_word, n_tokens)
         stats["full_right"] += full == "right"
+        stats["truncated"] += full == "truncated"
+        if full == "truncated" and not smoke:
+            continue  # still thinking: the answer is unknown, not wrong
         if full != "right" and not smoke:
             stats["skipped"] += 1
             continue
@@ -171,6 +174,7 @@ def run(engine, tokenizer, grid, fractions=BUDGET_FRACTIONS,
 
             outcomes: dict[str, bool] = {}
             cell: list[dict] = []
+            cell_truncated = False
             for name, result in res.items():
                 row = {**factors, "budget_frac": frac, "policy": name,
                        "n_tokens": result["n_tokens"], "kl": result["kl"],
@@ -181,9 +185,15 @@ def run(engine, tokenizer, grid, fractions=BUDGET_FRACTIONS,
                                      case.answer_word, case.wrong_word,
                                      n_tokens)
                     outcomes[name] = verdict == "right"
+                    cell_truncated |= verdict == "truncated"
                     row.update(verdict=verdict, correct=outcomes[name],
                                full_verdict=full)
                 cell.append(row)
+            if cell_truncated:
+                # A policy still thinking cannot be scored: drop the cell
+                # and count it rather than score it as a failure to answer.
+                stats["truncated_cells"] += 1
+                continue
             rows.extend(cell)
 
             # Budgets must be comparable or the table compares sizes, not
@@ -271,6 +281,11 @@ def main() -> None:
     if not args.smoke:
         print(f"{stats['skipped']} of {stats['cases']} cases skipped: the full "
               "context did not answer")
+        print(f"{stats['truncated']} of {stats['cases']} cases skipped: the "
+              "full-context continuation never closed its think block "
+              "(window too small if this is large)")
+        print(f"{stats['truncated_cells']} cells dropped: a pruned "
+              "continuation never closed its think block")
         print(f"{stats['flat']} of {stats['cells']} cells were flat (every "
               "policy the same) and carry no ordering")
     print()

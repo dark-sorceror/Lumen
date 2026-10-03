@@ -239,6 +239,30 @@ class _Engine:
     ("HELIOTROPEX", "neither"),
 ])
 def test_scored_is_a_trichotomy_on_word_boundaries(said, verdict):
-    got = scored(_Engine(said), TOK, [1], "HELIOTROPE", "QUILLON", n=40)
+    got = scored(_Engine("<think>\n\n</think>\n\n" + said), TOK, [1],
+                 "HELIOTROPE", "QUILLON", n=60)
 
     assert got == verdict
+
+
+@pytest.mark.parametrize("said,verdict", [
+    # the real failure mode: deliberation names both words, the answer is right
+    ("<think>QUILLON? or HELIOTROPE? hmm</think>\n\nHELIOTROPE", "right"),
+    ("<think>\n\n</think>\n\nHELIOTROPE", "right"),
+    ("<think>\n\n</think>\n\nQUILLON", "wrong"),
+    ("<think>\n\n</think>\n\nI cannot tell.", "neither"),
+    ("<think>QUILLON or HELIOTROPE, let me see", "truncated"),
+    ("<think>\n\n</think>", "neither"),
+])
+def test_scored_reads_the_answer_after_the_think_block(said, verdict):
+    got = scored(_Engine(said), TOK, [1], "HELIOTROPE", "QUILLON", n=200)
+
+    assert got == verdict
+
+
+def test_the_question_turn_carries_no_think_and_stays_pinned():
+    case = next(iter(cases(TOK, n_facts=1)))
+    question = _seg(case, lambda s: s.id == case.question_id)
+
+    assert " /no_think<|im_end|>" in question.text
+    assert case.question_id in case.pinned

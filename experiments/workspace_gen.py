@@ -107,6 +107,9 @@ def _turn(tokenizer, role: str, author: str, text: str) -> str:
         [{"role": role, "content": body}], tokenize=False)
 
 
+_NO_THINK = " /no_think"
+
+
 def generate(tokenizer, fact: int = 0, slot: int = 0, by_asker: bool = False,
              noise_seed: int = 0, n_distractors: int = 6) -> Case:
     """One case, with every factor named rather than drawn from one seed.
@@ -163,7 +166,11 @@ def generate(tokenizer, fact: int = 0, slot: int = 0, by_asker: bool = False,
     sys_id = add(SegmentKind.SYSTEM, "system", "system", SYS_TEXT,
                  editable=Editor.NONE)
     question = f"What is the {topic}?"
-    q = add(SegmentKind.USER_MSG, "user", _ASKER, question)
+    # Qwen3's chat template opens a think block regardless, so /no_think
+    # collapses it to an empty `<think>\n\n</think>` pair rather than removing
+    # it -- the scorer must still strip it. It rides in the QUESTION turn
+    # because that turn is pinned and no policy can evict it.
+    q = add(SegmentKind.USER_MSG, "user", _ASKER, question + _NO_THINK)
     header = f"s{len(segs):02d}"
     segs.append(Segment(id=header, kind=SegmentKind.SCRATCH,
                         text=generation_prompt_text(tokenizer),
@@ -185,16 +192,26 @@ def cases(tokenizer, n_facts: int = 3, n_distractors: int = 6):
                                noise_seed=f, n_distractors=n_distractors)
 
 
-CONTINUATION_TOKENS = 14  # a scoring parameter, per lab-notes finding 31 --
+CONTINUATION_TOKENS = 24  # a scoring parameter, per lab-notes finding 31 --
 # at 7 tokens a full context scored 5/6 and at 12 it scored 6/6, because the
 # model answers in sentence form about half the time. Too small a window
 # penalises a FORMAT and reports it as an error of CORRECTNESS. Record it with
-# every result; never let it be an unrecorded default.
+# every result; never let it be an unrecorded default. The empty think block
+# that /no_think leaves consumes about four tokens of it; the answer was
+# measured to close and complete inside 20 on the 8B.
 
 
 def scored(engine, tokenizer, tokens, right: str, wrong: str,
            n: int = CONTINUATION_TOKENS) -> str:
-    """"right", "wrong" or "neither" from an n-token greedy continuation.
+    """"right", "wrong", "neither" or "truncated" from an n-token greedy
+    continuation.
+
+    Only the text AFTER the first `</think>` is read. The model mentions both
+    candidate answers while deliberating, so matching the raw continuation
+    scores a correct answer as wrong. If no `</think>` appears the model is
+    still thinking and what it would have answered is unknown: that is
+    "truncated", not "neither", so a window that is too small shows up as
+    skipped cases instead of as failures to answer.
 
     A trichotomy, not a boolean: "said the poison" and "said nothing" are
     different failures and the headroom check needs to tell them apart.
@@ -203,9 +220,12 @@ def scored(engine, tokenizer, tokens, right: str, wrong: str,
     out = [ev.token_id for ev in engine.generate(
         tokens, GenParams(max_tokens=n, temperature=0.0))]
     text = tokenizer.decode(out)
+    if "</think>" not in text:
+        return "truncated"
+    answer = re.sub(r'(?s).*?</think>', '', text, count=1)
 
     def has(w):
-        return re.search(rf"\b{re.escape(w)}\b", text, re.I) is not None
+        return re.search(rf"\b{re.escape(w)}\b", answer, re.I) is not None
 
     if has(wrong):
         return "wrong"
