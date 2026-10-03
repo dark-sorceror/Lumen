@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 from dataclasses import dataclass
 
+from workbench.engine.engine import GenParams
 from workbench.context.model import Editor, Provenance, Segment, SegmentKind
 from workbench.server.framing import generation_prompt_text
 
@@ -181,6 +183,33 @@ def cases(tokenizer, n_facts: int = 3, n_distractors: int = 6):
             for by_asker in (False, True):
                 yield generate(tokenizer, fact=f, slot=slot, by_asker=by_asker,
                                noise_seed=f, n_distractors=n_distractors)
+
+
+CONTINUATION_TOKENS = 14  # a scoring parameter, per lab-notes finding 31 --
+# at 7 tokens a full context scored 5/6 and at 12 it scored 6/6, because the
+# model answers in sentence form about half the time. Too small a window
+# penalises a FORMAT and reports it as an error of CORRECTNESS. Record it with
+# every result; never let it be an unrecorded default.
+
+
+def scored(engine, tokenizer, tokens, right: str, wrong: str,
+           n: int = CONTINUATION_TOKENS) -> str:
+    """"right", "wrong" or "neither" from an n-token greedy continuation.
+
+    A trichotomy, not a boolean: "said the poison" and "said nothing" are
+    different failures and the headroom check needs to tell them apart.
+    Matched on WORD BOUNDARIES -- a substring test would let a continuation
+    reading "120" contain "12", and would not separate shared prefixes."""
+    out = [ev.token_id for ev in engine.generate(
+        tokens, GenParams(max_tokens=n, temperature=0.0))]
+    text = tokenizer.decode(out)
+
+    def has(w):
+        return re.search(rf"\b{re.escape(w)}\b", text, re.I) is not None
+
+    if has(wrong):
+        return "wrong"
+    return "right" if has(right) else "neither"
 
 
 def has_headroom(outcomes: dict[str, bool]) -> bool:

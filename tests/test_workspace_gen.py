@@ -5,6 +5,7 @@ given size scored the same -- nothing to order, so nothing to learn. The
 headroom precondition is asserted BEFORE a sweep runs, and loudly, rather than
 discovered afterwards in a flat table."""
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,9 @@ from experiments.workspace_gen import (
     generate,
     has_headroom,
     require_headroom,
+    scored,
 )
+from workbench.engine.engine import GenParams
 
 
 class _Tok:
@@ -217,3 +220,25 @@ def test_require_headroom_raises_rather_than_returning_a_flat_table():
     with pytest.raises(HeadroomError, match="no headroom"):
         require_headroom({"recency": True, "provenance": True})
 
+
+class _Engine:
+    def __init__(self, text):
+        self.text = text
+
+    def generate(self, tokens, params):
+        assert isinstance(params, GenParams) and params.temperature == 0.0
+        for ch in self.text:
+            yield SimpleNamespace(token_id=ord(ch))
+
+
+@pytest.mark.parametrize("said,verdict", [
+    ("The password is QUILLON.", "wrong"),
+    ("the password is heliotrope", "right"),
+    ("I cannot tell.", "neither"),
+    ("HELIOTROPE, not QUILLON", "wrong"),
+    ("HELIOTROPEX", "neither"),
+])
+def test_scored_is_a_trichotomy_on_word_boundaries(said, verdict):
+    got = scored(_Engine(said), TOK, [1], "HELIOTROPE", "QUILLON", n=40)
+
+    assert got == verdict
