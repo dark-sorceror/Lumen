@@ -1,0 +1,7 @@
+{
+  "name": "lumen-cache",
+  "version": "0.1.0",
+  "description": "Shows how much of the context each model request reuses versus reprocesses, measured from the prompt-cache token counts.",
+  "author": { "name": "Hao Yan" },
+  "types": "./types/index.d.ts"
+}
