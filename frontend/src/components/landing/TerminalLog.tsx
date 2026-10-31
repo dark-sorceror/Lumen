@@ -10,27 +10,27 @@ import styles from "./TerminalDrawing.module.css";
 /** A command you ran and what it printed. */
 export type Output = { id: number; ask: string; kind: "forgot" | "text"; text?: string };
 
-/** Claude Code's start-up banner: its mascot, drawn as the pixels its block
- * characters make (each cell half a column wide, half a line tall), then
+/** Claude Code's start-up banner: its mascot, drawn as the pixels its three
+ * rows of block characters make (" ▐▛███▜▌", "▝▜█████▛▘", "  ▘▘ ▝▝"; each
+ * pixel half a column wide and half a line tall, the eyes left unlit), then
  * its version, the model and the folder. */
 function Banner() {
   return (
     <div className={styles.tHello}>
       <span className={styles.tClawd}>
-        <svg viewBox="0 0 18 12" preserveAspectRatio="none" shapeRendering="crispEdges" aria-hidden="true">
+        <svg viewBox="0 0 18 6" preserveAspectRatio="none" shapeRendering="crispEdges" aria-hidden="true">
           <path
             fill="var(--claude)"
-            d="M3 0h12v8H3zM1 4h2v2H1zM15 4h2v2h-2zM4 8h1v2H4zM6 8h1v2H6zM11 8h1v2h-1zM13 8h1v2h-1z"
+            d="M3 0h12v1H3zM3 1h2v1H3zM6 1h6v1H6zM13 1h2v1h-2zM1 2h16v1H1zM3 3h12v1H3zM4 4h1v1H4zM6 4h1v1H6zM11 4h1v1h-1zM13 4h1v1h-1z"
           />
-          <path fill="var(--t-bg)" d="M5 2h1v2H5zM12 2h1v2h-1z" />
         </svg>
       </span>
       <div>
         <p>
           <b>Claude Code</b>
-          <span className={styles.tDim}> v2.1.314</span>
+          <span className={styles.tDim}> v2.1.316</span>
         </p>
-        <p className={styles.tDim}>Opus 5.5 · Claude Max</p>
+        <p className={styles.tDim}>Opus 5.5 with high effort · Claude Max</p>
         <p className={styles.tDim}>~/invoice-service</p>
       </div>
     </div>
@@ -78,7 +78,7 @@ function SessionLine({ line }: { line: Exclude<Line, { kind: "done" }> }) {
     );
   if (line.kind === "user")
     return (
-      <p>
+      <p className={cx(styles.tYou, styles.tHang)}>
         <span className={styles.tDim}>&gt; </span>
         {line.text}
       </p>
@@ -86,13 +86,14 @@ function SessionLine({ line }: { line: Exclude<Line, { kind: "done" }> }) {
   if (line.kind === "tool")
     return (
       <div>
-        <p>
+        <p className={styles.tHang}>
           <span className={styles.tOk}>⏺</span> {line.text}
         </p>
         {line.result !== undefined && <p className={styles.tDim}>{`  ⎿ ${line.result}`}</p>}
       </div>
     );
-  if (line.kind === "reply") return <p>⏺ {line.text}</p>;
+  if (line.kind === "reply") return <p className={styles.tHang}>⏺ {line.text}</p>;
+  if (line.kind === "worked") return <p className={styles.tDim}>✻ {line.text}</p>;
   return (
     <p>
       <span className={styles.tClaude}>✻</span> {line.text}
@@ -225,7 +226,7 @@ export default function TerminalLog({
       )}
       {outputs.map((o) => (
         <div key={o.id} className={styles.tOut}>
-          <p>
+          <p className={cx(styles.tYou, styles.tHang)}>
             <span className={styles.tDim}>&gt; </span>
             {o.ask}
           </p>

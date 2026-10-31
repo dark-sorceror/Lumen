@@ -60,6 +60,15 @@
   scrollbar-color: #444 transparent;
 }
 
+/* One blank line under the last of the transcript, as Claude Code leaves
+   above its prompt: the log's 10px gap, this and the session's 8px gap
+   make one 1.6em line. */
+.tlog::after {
+  content: "";
+  flex: none;
+  height: calc(1.6em - 18px);
+}
+
 .tlog p,
 .tlog pre {
   margin: 0;
@@ -92,6 +101,17 @@
 
 .tInk {
   color: var(--t-ink);
+}
+
+/* what you typed, on Claude Code's grey, the width of the terminal */
+.tYou {
+  background: var(--t-you);
+}
+
+/* a bullet's or the prompt's line: what wraps starts under its text */
+.tHang {
+  padding-left: 2ch;
+  text-indent: -2ch;
 }
 
 /* Claude Code's start-up banner: its mascot, then who and where */
@@ -291,18 +311,18 @@
   cursor: pointer;
 }
 
-/* the prompt: a steady block cursor stands in for the caret */
+/* the prompt, between two rules as Claude Code draws it: a steady block
+   cursor stands in for the caret */
 .tPrompt {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  border: 1px solid var(--t-line);
-  border-radius: 8px;
+  gap: 1ch;
+  padding: 4px 0;
+  border-block: 1px solid var(--t-line-2);
 }
 
 .tPrompt:focus-within {
-  border-color: var(--t-line-2);
+  border-color: var(--t-dim);
 }
 
 .tIn {
@@ -383,9 +403,19 @@
 }
 
 .tStatus {
+  display: flex;
   padding: 0 2px;
   color: var(--t-dim);
-  white-space: nowrap;
+  white-space: pre;
+}
+
+.tMode {
+  flex: none;
+  color: var(--t-mode);
+}
+
+.tPlug {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

@@ -33,6 +33,10 @@
   --t-red: #ff7a8a;
   --t-ok: #7fd18f;
   --t-warn: #e9c46a;
+  /* Claude Code's amber for its permission mode, "⏵⏵ auto mode on". */
+  --t-mode: #e8a03c;
+  /* The grey Claude Code puts behind what you typed. */
+  --t-you: #373737;
   --tc-instr: #818cf8;
   --tc-tools: #f472b6;
   --tc-summary: #38bdf8;

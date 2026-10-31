@@ -147,6 +147,7 @@ export default function TerminalDrawing({
     last.kind !== "busy" &&
     last.kind !== "ask";
   const noteShown = s.toast && !toastGone && !s.forgotSeen;
+  const status = statusText(s, { forgotSeen, putBack: putBack.length });
   const placeholder = done ? `Try ${FORGOT}` : "";
   const shown = sending ?? draft;
   const menu = showsMenu(shown);
@@ -486,9 +487,7 @@ export default function TerminalDrawing({
         </ul>
 
         <form className={styles.tPrompt} autoComplete="off" onSubmit={submit}>
-          <span className={styles.tDim} aria-hidden="true">
-            &gt;
-          </span>
+          <span aria-hidden="true">❯</span>
           <span className={styles.tTyped} aria-hidden="true" hidden={typing === null}>
             {typing}
             <i className={styles.tCaret} />
@@ -576,7 +575,14 @@ export default function TerminalDrawing({
           </div>
         )}
 
-        <p className={styles.tStatus}>{statusText(s, { forgotSeen, putBack: putBack.length })}</p>
+        {/* Claude Code's permission mode, then the plugin's status line. */}
+        <p className={styles.tStatus}>
+          <span className={styles.tMode}>⏵⏵ auto mode on</span>
+          <span className={styles.tPlug}>
+            {status && <span aria-hidden="true"> · </span>}
+            {status}
+          </span>
+        </p>
         <p className={kit.sr} role="status">
           {said}
         </p>

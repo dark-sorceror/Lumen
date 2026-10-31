@@ -68,6 +68,7 @@ def test_the_script_runs_compact_then_the_request_the_ask_forgot_restore_and_loc
         "reply:Understood. I'll use the local docker database.",
         "tool:Bash(npm run migrate -- --env local)",
         "reply:Migrations applied to the local docker database. The new column is there.",
+        "worked:Worked for 14s",
     ]
 
 

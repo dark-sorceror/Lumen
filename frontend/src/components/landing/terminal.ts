@@ -28,7 +28,9 @@ export type Line =
   /** /illumen-forgot's output, drawn inline. */
   | { kind: "forgot" }
   /** A command's one-line answer, printed plain. */
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  /** The grey line Claude Code leaves when a turn is done: how long it took. */
+  | { kind: "worked"; text: string };
 
 export type Step = {
   /** How long before it lands, in ms. */
@@ -109,6 +111,7 @@ export const SCRIPT: Step[] = [
     line: { kind: "reply", text: "Migrations applied to the local docker database. The new column is there." },
     request: { reused: 30_800, again: 3_600 },
   },
+  { wait: 700, line: { kind: "worked", text: "Worked for 14s" } },
 ];
 
 /** The summary: from how many tokens to how many, and when. */
