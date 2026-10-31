@@ -1,0 +1,82 @@
+name: Deploy to GitHub Pages
+
+on:
+    push:
+        branches: ["main"]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+concurrency:
+    group: "pages"
+    cancel-in-progress: true
+
+# The site is illumen.lol: the landing alone, from the frontend's static
+# export. The chat app at /chat/ needs the backend on the person's Mac, so
+# it is built (the export is one build) and then left out of what's published.
+defaults:
+    run:
+        working-directory: frontend
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: "npm"
+                  cache-dependency-path: frontend/package-lock.json
+
+            - name: Restore Next.js build cache
+              uses: actions/cache@v4
+              with:
+                  path: frontend/.next/cache
+                  key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**/*', 'frontend/public/**/*', 'frontend/next.config.*') }}
+                  restore-keys: |
+                      ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
+
+            - name: Install dependencies
+              run: npm ci
+
+            # next build type-checks too
+            - name: Build
+              run: npm run build
+
+            # Everything the chat app's route exports sits in out/chat/. The
+            # job stops here unless the landing is there, the chat is gone and
+            # the domain file came through.
+            - name: Keep the landing only
+              run: |
+                  rm -rf out/chat
+                  test -f out/index.html
+                  test ! -e out/chat
+                  test "$(cat out/CNAME)" = illumen.lol
+
+            - name: Add .nojekyll
+              run: touch out/.nojekyll
+
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: ./frontend/out
+
+    deploy:
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4

@@ -23,7 +23,7 @@ Qwen3 on Apple Silicon via MLX.
   - `tools/` — safe tool registry (calculator, current-time, context search)
   - `cli/` — terminal client: streaming, context inspection, priced edits, per-token logprobs
   - `static/` — minimal fallback client
-- `frontend/` — Next.js app (chat UI, context inspector, media viewer)
+- `frontend/` — Next.js app: the landing page at `/` (also published to illumen.lol) and the chat (chat UI, context inspector, media viewer) at `/chat/`
 - `tests/` — pytest suite
 - `experiments/` — engine ↔ stock mlx-lm parity harness
 
