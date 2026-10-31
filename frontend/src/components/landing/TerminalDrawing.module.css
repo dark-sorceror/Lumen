@@ -1,0 +1,599 @@
+/* The hero's second view, drawn: Claude Code in a pitch-black terminal with
+   the illumen plugin. Its start-up banner, a session that summarises, the
+   seam row, the plugin's note, the prompt with its command menu and status
+   line, and the plugin's small pane. Hero.module.css draws the window's
+   frame, and page.module.css holds the --t-* and --tc-* colours. */
+
+/* What's hidden stays hidden, whatever display its class gives it. */
+.tv[hidden],
+.tv [hidden] {
+  display: none !important;
+}
+
+.tv {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--pane, 0px);
+  background: var(--t-bg);
+  color: var(--t-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  container-type: inline-size;
+  container-name: tv;
+  transition: grid-template-columns var(--slow) var(--ease);
+}
+
+.paneOpen {
+  --pane: 340px;
+}
+
+.tv :focus-visible {
+  outline-color: var(--t-ink);
+}
+
+/* the session: the transcript, the note, the menu, the prompt, the status line */
+.ts {
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px 12px;
+  /* The transcript's own width says where the note fits (the pane may take
+     part of the terminal's). */
+  container-type: inline-size;
+  container-name: ts;
+}
+
+.tlog {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+
+.tlog p,
+.tlog pre {
+  margin: 0;
+}
+
+.tlog pre {
+  font: inherit;
+  white-space: pre-wrap;
+}
+
+.tDim {
+  color: var(--t-dim);
+}
+
+.tFaded {
+  color: var(--t-faded);
+}
+
+.tRed {
+  color: var(--t-red);
+}
+
+.tOk {
+  color: var(--t-ok);
+}
+
+.tClaude {
+  color: var(--claude);
+}
+
+.tInk {
+  color: var(--t-ink);
+}
+
+/* Claude Code's start-up banner: its mascot, then who and where */
+.tHello {
+  display: flex;
+  align-items: center;
+  gap: 2ch;
+  padding: 2px 0 6px;
+}
+
+.tClawd {
+  display: block;
+  flex: none;
+  width: 9ch;
+  height: 4.8em;
+}
+
+.tClawd svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tBusy .tClaude {
+  display: inline-block;
+  animation: spin 1.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* what a command printed */
+.tOut {
+  padding-left: 2px;
+}
+
+.tOut .body {
+  margin: 4px 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tOut .gap {
+  height: 8px;
+}
+
+.tOut .item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+/* Claude Code's permission prompt: a thin box in the line colour, ink text */
+.tAsk {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--t-line);
+  border-radius: 4px;
+  color: var(--t-ink);
+}
+
+.tAsk p {
+  white-space: pre-wrap;
+}
+
+.tAsked {
+  font-weight: 600;
+}
+
+/* the seam row: where it summarised, and what of yours is gone */
+.tSeam {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--t-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tSeam:hover {
+  color: var(--t-ink);
+}
+
+.tSeamBody {
+  margin: 4px 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tGone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.tGone q {
+  flex: 1 1 260px;
+  quotes: none;
+  color: var(--t-faded);
+}
+
+.tGone.back q {
+  color: var(--t-ink);
+}
+
+.tActs {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.tBtn {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--t-ink);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tBtn:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.tBtn:disabled {
+  color: var(--t-dim);
+  text-decoration: none;
+  cursor: default;
+}
+
+/* the plugin's note, top right: its name and × on top, its words under */
+.tToast {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  right: 14px;
+  width: min(300px, calc(100% - 28px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  padding: 8px 12px;
+  border: 1px solid var(--t-line);
+  border-radius: 8px;
+  background: var(--t-bg-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  animation: pop var(--slow) var(--ease);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tToast .noteName {
+  color: var(--t-dim);
+  margin-bottom: 2px;
+}
+
+.tToast .noteWords {
+  grid-column: 1 / -1;
+}
+
+.tToast .x {
+  grid-row: 1;
+  grid-column: 2;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--t-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tLink {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--t-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* the prompt: a steady block cursor stands in for the caret */
+.tPrompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--t-line);
+  border-radius: 8px;
+}
+
+.tPrompt:focus-within {
+  border-color: var(--t-line-2);
+}
+
+.tIn {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.tPrompt input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--t-ink);
+  font: inherit;
+  letter-spacing: 0;
+  caret-color: transparent;
+}
+
+.tPrompt input::placeholder {
+  color: var(--t-dim);
+}
+
+.tTyped {
+  white-space: pre;
+}
+
+.tCaret {
+  display: inline-block;
+  width: 1ch;
+  height: 1.3em;
+  vertical-align: -0.28em;
+  background: var(--t-ink);
+}
+
+.tCursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1ch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--t-ink);
+  color: var(--t-bg);
+  font-style: normal;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.tCursor.idle {
+  background: transparent;
+  color: transparent;
+  box-shadow: inset 0 0 0 1px var(--t-ink);
+}
+
+/* A hundred columns, measured to place the cursor; clipped to nothing, so it
+   takes no room and widens nothing. */
+.tMeasure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tMeasure i {
+  display: block;
+  width: 100ch;
+  height: 0;
+}
+
+.tStatus {
+  padding: 0 2px;
+  color: var(--t-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the command menu, above the prompt */
+.tCmds {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tCmds button {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--t-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tCmds button:hover,
+.tCmds button:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--t-ink);
+}
+
+.tCmds button.on {
+  color: var(--t-ink);
+}
+
+.tCmds button.on .tInk {
+  color: var(--claude);
+}
+
+.tCmds .about {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the plugin's pane */
+.tpane {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--t-line);
+  background: var(--t-bg);
+}
+
+.tpaneIn {
+  width: 340px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ttl {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ttl b {
+  font-weight: 600;
+}
+
+.ttl span {
+  margin-left: auto;
+}
+
+.lbl {
+  color: var(--t-dim);
+}
+
+.big {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.tbars {
+  white-space: pre;
+  letter-spacing: -0.5px;
+  overflow: hidden;
+}
+
+.rowLink {
+  display: flex;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--t-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowLink > span:last-child {
+  margin-left: auto;
+  color: var(--t-dim);
+}
+
+.rowLink:hover {
+  text-decoration: underline;
+}
+
+/* A command that opens the pane lights it a moment, behind what it says. */
+.flash {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  animation: tflash 1.2s var(--ease) both;
+}
+
+@keyframes tflash {
+  0%,
+  40% {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@container tv (max-width: 560px) {
+  .tCmds .about {
+    display: none;
+  }
+
+  .ts {
+    padding: 12px;
+  }
+}
+
+/* Narrow, the pane lies over the transcript, which keeps its width (the
+   terminal can't query its own width, so the transcript spans both tracks). */
+@container tv (max-width: 640px) {
+  .ts {
+    grid-column: 1 / -1;
+  }
+
+  .tpane {
+    position: absolute;
+    z-index: 5;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 100%);
+    box-shadow: -20px 0 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .tv:not(.paneOpen) .tpane {
+    display: none;
+  }
+
+  .tpaneIn {
+    width: 100%;
+  }
+}
+
+/* A transcript too narrow for the box beside Claude Code's banner: the note
+   is one line under the prompt, wrapping as terminal text does, × at its end. */
+@container ts (max-width: 600px) {
+  .tToast {
+    position: static;
+    width: auto;
+    display: block;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .tToast .noteName {
+    margin: 0 1ch 0 0;
+  }
+
+  .tToast .x {
+    margin-left: 1ch;
+    padding: 0 2px;
+  }
+}
+
+/* Reduced motion: the note, the pane and the spinner are simply there. */
+@media (prefers-reduced-motion: reduce) {
+  .tv {
+    transition: none;
+  }
+
+  .tToast,
+  .flash,
+  .tBusy .tClaude {
+    animation: none;
+  }
+}

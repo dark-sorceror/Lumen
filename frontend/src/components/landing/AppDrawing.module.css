@@ -1,0 +1,1117 @@
+/* The hero's app, drawn: illumen's own window with one made-up chat, its
+   sidebar, the ring's island, the turn's peek and the Context panel. The
+   kit (buttons, pills, chips, the room bar, the keys) is page.module.css's;
+   Hero.module.css draws the frame. */
+
+/* What's hidden stays hidden, whatever display its class gives it. */
+.app[hidden],
+.app [hidden] {
+  display: none !important;
+}
+
+.app {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr) var(--aside, 0px);
+  transition: grid-template-columns var(--slow) var(--ease);
+}
+
+.asideOpen {
+  --aside: 360px;
+}
+
+/* the ring: how full, as an arc */
+.ring {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transform: rotate(-90deg);
+}
+
+.ring.ringLg {
+  width: 18px;
+  height: 18px;
+}
+
+.trk {
+  fill: none;
+  stroke: var(--fill-2);
+  stroke-width: 2.4;
+}
+
+.arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 700ms var(--ease);
+}
+
+/* the sidebar */
+.side {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: var(--paper-2);
+  font-size: var(--fs-ui);
+}
+
+.sideHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 2px 0 8px;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.sideWord {
+  font-size: 15px;
+}
+
+.sideHead .sideToggle {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.row svg {
+  color: var(--ink-3);
+}
+
+.row:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+.row.on {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+.row.on:hover {
+  background: var(--fill-2);
+}
+
+.side .sideLabel {
+  padding: 12px 8px 4px;
+}
+
+.sideFoot {
+  margin-top: auto;
+}
+
+/* the chat */
+.main {
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  container-name: app-main;
+}
+
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  padding: 0 12px;
+}
+
+.title {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.grow {
+  flex: 1;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 24px 20px;
+  scrollbar-width: thin;
+  /* The drawing scrolls itself, to the end or to the seam; Chrome's
+     anchoring would carry the seam away as the composer takes a chip. */
+  overflow-anchor: none;
+}
+
+.col {
+  max-width: 580px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.youWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.you {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: 8px 15px;
+  border-radius: 18px;
+  background: var(--fill);
+  line-height: 1.5;
+  transition: background var(--fast) var(--ease);
+}
+
+.you:not(.gone):hover {
+  background: var(--fill-2);
+}
+
+.you.gone {
+  transition:
+    color 900ms var(--ease),
+    background 900ms var(--ease),
+    border-color 900ms var(--ease);
+  background: transparent;
+  color: var(--faded);
+  border: 1px dashed var(--line-2);
+  padding: 7px 14px;
+}
+
+.goneNote {
+  transition: opacity 500ms var(--ease) 500ms;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+.ai {
+  position: relative;
+  line-height: 1.65;
+}
+
+.ai p + p {
+  margin-top: 8px;
+}
+
+.work {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px -6px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-ui);
+  cursor: pointer;
+}
+
+.work:hover {
+  background: var(--fill);
+  color: var(--ink-2);
+}
+
+.work svg {
+  transition: transform var(--fast) var(--ease);
+}
+
+.work[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-2);
+  font-size: var(--fs-ui);
+  color: var(--ink-3);
+}
+
+.receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 12px;
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+.drew {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.drew .drewChip {
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.drew .drewChip:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+
+.delta:hover,
+.delta[aria-expanded="true"] {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+/* the seam: where Claude Code summarised, and what you typed that's gone */
+.seam {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.seamLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.seamLine::before,
+.seamLine::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-2);
+}
+
+.seamBtn {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--fs-ui);
+  cursor: pointer;
+}
+
+.seamBtn:hover {
+  color: var(--ink);
+}
+
+.seamBtn .seamFig {
+  color: var(--ink-3);
+}
+
+.seamBtn > svg:last-child {
+  transition: transform var(--fast) var(--ease);
+}
+
+.seamBtn[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.seamBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.goneItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 10px;
+  border-radius: var(--r-md);
+  transition:
+    background var(--slow) var(--ease),
+    box-shadow var(--slow) var(--ease);
+}
+
+/* The play points at what the summary dropped, in its own crimson wash; the
+   shadow pads the wash out without moving anything. */
+.goneItem.marked {
+  background: var(--gone-wash);
+  box-shadow: 0 0 0 6px var(--gone-wash);
+}
+
+.goneItem.marked q {
+  border-left-color: var(--gone);
+}
+
+.goneItem q {
+  flex: 1 1 220px;
+  color: var(--faded);
+  line-height: 1.5;
+  quotes: none;
+  padding-left: 12px;
+  border-left: 2px dashed var(--line-2);
+  transition:
+    color var(--slow) var(--ease),
+    border-color var(--slow) var(--ease);
+}
+
+.goneItem.back q {
+  color: var(--ink);
+  border-left-color: var(--live);
+}
+
+.acts {
+  display: flex;
+  gap: 2px;
+}
+
+.tag {
+  font-size: var(--fs-meta);
+  color: var(--live-ink);
+  align-self: center;
+}
+
+.seamFoot {
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+.acts .putBack {
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    opacity var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+/* The play's press on Put back. */
+.acts .putBack.pressed {
+  background: var(--fill-2);
+  color: var(--ink);
+  transform: scale(0.94);
+}
+
+.acts .putBack[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.acts .putBack[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+.flash {
+  animation: flash 1.2s var(--ease);
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 4px var(--live-wash);
+  }
+  100% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+/* the ribbon: how full it was as each message went */
+.ribbon {
+  position: absolute;
+  left: 16px;
+  top: 60px;
+  width: 100px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ribbon .ribbonLabel {
+  font-size: 11px;
+  font-weight: 400;
+  margin-bottom: 2px;
+}
+
+.rb {
+  position: relative;
+  display: block;
+  height: 8px;
+  width: 88px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.rb::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--w);
+  border-radius: 2px;
+  background: var(--ink-3);
+  opacity: 0.55;
+}
+
+.rb.lit::before {
+  background: var(--live);
+  opacity: 1;
+}
+
+.rb:hover::before,
+.rb:focus-visible::before {
+  opacity: 1;
+  background: var(--ink);
+}
+
+.rb::after {
+  content: "";
+  position: absolute;
+  left: 80px;
+  top: -3px;
+  bottom: -3px;
+  border-left: 1px dashed var(--line-2);
+}
+
+.rbCut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 8px;
+}
+
+.rbCut i {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--gone);
+}
+
+.rbCut span {
+  font-size: 10px;
+  color: var(--gone-ink);
+}
+
+@container app-main (max-width: 819px) {
+  .ribbon {
+    display: none;
+  }
+}
+
+/* the composer */
+.foot {
+  flex: none;
+  position: relative;
+  padding: 0 24px 16px;
+}
+
+.cwrap {
+  position: relative;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.composer {
+  position: relative;
+  padding: 12px 10px 10px 16px;
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow:
+    var(--e1),
+    inset 0 0 0 1px var(--line);
+  transition: box-shadow var(--fast) var(--ease);
+}
+
+.composer::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  top: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--live), transparent);
+  background-size: 38% 100%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity var(--slow) var(--ease);
+}
+
+.composer.working::before {
+  opacity: 1;
+  animation: live-run 1.8s linear infinite;
+}
+
+@keyframes live-run {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+.composer:focus-within {
+  box-shadow:
+    var(--e1),
+    inset 0 0 0 1px var(--line-2),
+    0 0 0 4px var(--live-wash);
+}
+
+.field {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  max-height: 120px;
+  padding: 2px 0 8px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.field::placeholder {
+  color: var(--ink-3);
+}
+
+.cChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cChips:not(:empty) {
+  margin-bottom: 8px;
+}
+
+.cChips .putChip {
+  max-width: 100%;
+  cursor: default;
+}
+
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chipX {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.chipX:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.cRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cRow .inst {
+  gap: 7px;
+}
+
+.sep {
+  width: 1px;
+  height: 12px;
+  background: var(--line-2);
+}
+
+.send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  transition:
+    opacity var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.send:hover {
+  opacity: 0.86;
+}
+
+.send[aria-disabled="true"]:not(.press) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.send:active,
+.send.press {
+  transform: scale(0.92);
+}
+
+@container app-main (max-width: 520px) {
+  .full,
+  .long {
+    display: none;
+  }
+
+  .scroll {
+    padding-inline: 14px;
+  }
+
+  .foot {
+    padding-inline: 12px;
+  }
+}
+
+/* what you send, and the drawing's answer: what's happening now has a
+   peach spinner, and new things slide in */
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--ink-2);
+  font-size: var(--fs-ui);
+}
+
+.spin {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--live-wash);
+  border-top-color: var(--live);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.enter {
+  animation: enter 420ms var(--ease) both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.word {
+  opacity: 0;
+  transition: opacity 160ms var(--ease);
+}
+
+.wordOn {
+  opacity: 1;
+}
+
+/* What you put back, over the message it went with. */
+.putNote {
+  max-width: 80%;
+  font-size: var(--fs-meta);
+  color: var(--live-ink);
+  text-align: right;
+}
+
+/* Before the summary the two gone messages read as any other. */
+.youWrap.pre .you.gone {
+  color: var(--ink);
+  background: var(--fill);
+  border-color: transparent;
+}
+
+.youWrap.pre .goneNote {
+  opacity: 0;
+  transition: none;
+}
+
+.liveSum {
+  align-self: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter {
+    animation: none;
+  }
+
+  .you.gone,
+  .goneNote {
+    transition: none;
+  }
+
+  .word {
+    opacity: 1;
+  }
+}
+
+/* the island over the composer, and the turn's peek */
+.island,
+.peek {
+  position: absolute;
+  z-index: 30;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e2);
+}
+
+.island {
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: min(380px, 100%);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: pop var(--slow) var(--ease);
+}
+
+.peek {
+  right: 0;
+  bottom: 34px;
+  width: min(320px, 100%);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: pop var(--slow) var(--ease);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.popHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popHead .popClose {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+}
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.big b {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.big span {
+  color: var(--ink-3);
+  font-size: var(--fs-ui);
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.callout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--fill);
+  font-size: var(--fs-ui);
+}
+
+.callout .calloutBtn {
+  margin-left: auto;
+  height: 26px;
+}
+
+.popFoot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-ui);
+}
+
+.lines div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.lines div span:first-child {
+  flex: 1;
+  color: var(--ink-2);
+}
+
+.lines div span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+/* the Context panel */
+.aside {
+  min-width: 0;
+  overflow: hidden;
+  box-shadow: inset 1px 0 0 var(--line);
+  background: var(--paper);
+}
+
+.asideIn {
+  width: 360px;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.stTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 4px 16px;
+}
+
+.stTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stMeta {
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+.stTop .stClose {
+  margin-left: auto;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 12px 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+  overflow-x: auto;
+}
+
+.tabs button {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-ui);
+  cursor: pointer;
+  box-shadow: inset 0 -2px 0 transparent;
+  white-space: nowrap;
+}
+
+.tabs button[aria-selected="true"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+.stBody {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: var(--fs-ui);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.li i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--k);
+  width: var(--w);
+  min-width: 3px;
+}
+
+.li small {
+  color: var(--ink-3);
+}
+
+.helper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  text-align: left;
+  font-size: var(--fs-ui);
+  cursor: pointer;
+}
+
+.hTop {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.hTop small {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.hNote {
+  color: var(--ink-2);
+}
+
+.quote {
+  display: block;
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--fs-meta);
+}
+
+.smallPrint {
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+
+  .side {
+    visibility: hidden;
+  }
+
+  .aside {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+  }
+
+  .asideIn {
+    width: 100%;
+  }
+
+  .app:not(.asideOpen) .aside {
+    display: none;
+  }
+}
