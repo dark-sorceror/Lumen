@@ -5,15 +5,14 @@ import kit from "@/app/(landing)/page.module.css";
 import IllumenMark from "@/components/IllumenMark";
 import Wordmark from "@/components/Wordmark";
 import { PLUGIN_INSTALL } from "@/lib/landing";
-import CopyButton from "./CopyButton";
 import { Icon } from "./Icons";
 import { reducedMotion } from "./motion";
 
 const INSTALL = PLUGIN_INSTALL[1];
 
-/** The brand and its links, the plugin's install line, then the name drawn
- * large, lit from the left as it comes into view. */
-export default function Footer({ onStart }: { onStart: (opener: HTMLElement) => void }) {
+/** The brand and its links, the plugin's install line (coming soon), then
+ * the name drawn large, lit from the left as it comes into view. */
+export default function Footer() {
   const giant = useRef<HTMLDivElement>(null);
   const [lit, setLit] = useState(false);
 
@@ -38,7 +37,7 @@ export default function Footer({ onStart }: { onStart: (opener: HTMLElement) => 
   }, []);
 
   return (
-    <footer className={kit.footBar} aria-label="illumen" data-behind-sheet>
+    <footer className={kit.footBar} aria-label="illumen">
       <div className={`${kit.wrap} ${kit.footGrid}`}>
         <div className={kit.footBrand}>
           <a className={kit.brand} href="#top" aria-label="illumen, back to the top">
@@ -50,7 +49,7 @@ export default function Footer({ onStart }: { onStart: (opener: HTMLElement) => 
             <div className={kit.cmd}>
               <span className={kit.cmdP}>$</span>
               <code>{INSTALL}</code>
-              <CopyButton text={INSTALL} what="the install command" className={`${kit.btn} ${kit.btnSm}`} />
+              <span className={`${kit.btn} ${kit.btnSm} ${kit.soon}`}>Coming soon</span>
             </div>
           </div>
         </div>
@@ -60,15 +59,7 @@ export default function Footer({ onStart }: { onStart: (opener: HTMLElement) => 
             <a href="#forgets">How it works</a>
             <a href="#quiet">What it shows</a>
             <a href="#ways-in">Ways in</a>
-            <a
-              href="#start"
-              onClick={(e) => {
-                e.preventDefault();
-                onStart(e.currentTarget);
-              }}
-            >
-              Start a chat
-            </a>
+            <span className={kit.footSoon}>Start a chat · coming soon</span>
           </div>
           <div className={kit.footCol}>
             <p className={kit.footH}>Claude Code</p>

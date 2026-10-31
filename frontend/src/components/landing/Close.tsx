@@ -2,20 +2,18 @@
 
 import { useRef, useState } from "react";
 import kit from "@/app/(landing)/page.module.css";
-import { estimateTokens, isSendKey, tokensText } from "@/lib/landing";
+import { estimateTokens, tokensText } from "@/lib/landing";
 import styles from "./Sections.module.css";
-import { SIconLg } from "./sectionIcons";
 
 const MAX_HEIGHT_PX = 200;
 const CIRCLE = 37.7;
 const WINDOW_TOKENS = 200000;
 
-/** The closing composer: type a first message, and it starts the chat
- * (the page's start behaviour) with the words. */
-export default function Close({ onStart }: { onStart: (words: string, opener: HTMLElement) => void }) {
+/** The closing composer: type a first message and see about how much of the
+ * context it would take. Starting the chat is coming soon. */
+export default function Close() {
   const [text, setText] = useState("");
   const field = useRef<HTMLTextAreaElement>(null);
-  const send = useRef<HTMLButtonElement>(null);
   const n = estimateTokens(text);
 
   function grow() {
@@ -25,23 +23,13 @@ export default function Close({ onStart }: { onStart: (words: string, opener: HT
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
   }
 
-  function submit() {
-    if (send.current) onStart(text.trim(), send.current);
-  }
-
   return (
     <section className={styles.close} id="start" aria-labelledby="close-title">
       <div className={kit.wrap}>
         <h2 className={`${kit.h2} ${styles.closeTitle}`} id="close-title">
           Start a chat and look inside.
         </h2>
-        <form
-          action="#start"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
+        <div className={styles.closeBox}>
           <div className={styles.composer}>
             <label className={kit.sr} htmlFor="close-field">
               Your first message
@@ -55,11 +43,6 @@ export default function Close({ onStart }: { onStart: (words: string, opener: HT
               onChange={(e) => {
                 setText(e.target.value);
                 grow();
-              }}
-              onKeyDown={(e) => {
-                if (!isSendKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing })) return;
-                e.preventDefault();
-                submit();
               }}
             />
             <div className={styles.cRow}>
@@ -77,13 +60,11 @@ export default function Close({ onStart }: { onStart: (words: string, opener: HT
                 <span className={kit.num}>{n ? `≈ +${tokensText(n)} tokens` : "Context"}</span>
               </span>
               <span className={styles.grow} />
-              <button type="submit" ref={send} className={styles.send} aria-label="Start the chat">
-                <SIconLg name="up" />
-              </button>
+              <span className={`${kit.btn} ${kit.btnSolid} ${kit.btnSm} ${kit.soon}`}>Coming soon</span>
             </div>
           </div>
-        </form>
-        <p className={styles.fine}>Free. No account. Your words wait in the new chat while you pick who answers.</p>
+        </div>
+        <p className={styles.fine}>Free. No account. Runs on your Mac.</p>
       </div>
     </section>
   );

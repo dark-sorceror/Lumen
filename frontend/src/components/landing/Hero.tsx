@@ -23,7 +23,6 @@ export default function Hero({
   onView,
   title,
   replay,
-  onStart,
 }: {
   window: ReactNode;
   tryRow: ReactNode;
@@ -31,7 +30,6 @@ export default function Hero({
   onView: (view: HeroView, focus?: boolean) => void;
   title: string;
   replay?: ReactNode;
-  onStart: (opener: HTMLElement) => void;
 }) {
   const plug = view === "plugin";
 
@@ -59,21 +57,11 @@ export default function Hero({
           illumen app on your Mac, or bring it into Claude Code.
         </p>
         <div className={styles.cta}>
-          <a
-            className={`${kit.btn} ${kit.btnSolid} ${kit.btnLg}`}
-            href="#start"
-            onClick={(e) => {
-              e.preventDefault();
-              onStart(e.currentTarget);
-            }}
-          >
-            Get started
-            <Icon name="arrow" />
-          </a>
-          <a className={`${kit.btn} ${kit.btnLine} ${kit.btnLg}`} href="#plugin">
+          <span className={`${kit.btn} ${kit.btnSolid} ${kit.btnLg} ${kit.soon}`}>Coming soon</span>
+          <span className={`${kit.btn} ${kit.btnLine} ${kit.btnLg} ${kit.soon}`}>
             <ClaudeMark />
-            Get the Claude Code plugin
-          </a>
+            Plugin coming soon
+          </span>
         </div>
         <p className={styles.fine}>Free. No account. Runs on your Mac.</p>
 

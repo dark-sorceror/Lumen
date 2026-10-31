@@ -3,11 +3,11 @@ import IllumenMark from "@/components/IllumenMark";
 import Wordmark from "@/components/Wordmark";
 import { ClaudeMark } from "./Icons";
 
-/** The sticky top bar: the logo (to the very top), three sections, the
- * plugin, and Get started. */
-export default function Nav({ onStart }: { onStart: (opener: HTMLElement) => void }) {
+/** The sticky top bar: the logo (to the very top), three sections, then
+ * the plugin and the app, both coming soon. */
+export default function Nav() {
   return (
-    <header className={kit.nav} data-behind-sheet>
+    <header className={kit.nav}>
       <div className={`${kit.wrap} ${kit.navIn}`}>
         <a className={kit.brand} href="#top">
           <IllumenMark size={24} />
@@ -19,20 +19,11 @@ export default function Nav({ onStart }: { onStart: (opener: HTMLElement) => voi
           <a href="#plugin">Plugin</a>
         </nav>
         <div className={kit.navAct}>
-          <a className={`${kit.btn} ${kit.plug}`} href="#plugin">
+          <span className={`${kit.btn} ${kit.plug} ${kit.soon}`}>
             <ClaudeMark />
-            Get the plugin
-          </a>
-          <a
-            className={`${kit.btn} ${kit.btnSolid}`}
-            href="#start"
-            onClick={(e) => {
-              e.preventDefault();
-              onStart(e.currentTarget);
-            }}
-          >
-            Get started
-          </a>
+            Plugin coming soon
+          </span>
+          <span className={`${kit.btn} ${kit.btnSolid} ${kit.soon}`}>Coming soon</span>
         </div>
       </div>
     </header>

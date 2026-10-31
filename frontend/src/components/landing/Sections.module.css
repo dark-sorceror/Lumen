@@ -420,7 +420,7 @@
   margin-top: 0;
 }
 
-.close form {
+.closeBox {
   max-width: 640px;
   margin: var(--s6) auto 0;
   text-align: left;
@@ -482,30 +482,6 @@
   color: var(--ink-2);
   font-size: var(--fs-ui);
   white-space: nowrap;
-}
-
-.send {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-left: 4px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--ink);
-  color: var(--paper);
-  cursor: pointer;
-  transition:
-    opacity var(--fast) var(--ease),
-    transform var(--fast) var(--ease);
-}
-
-.send:hover {
-  opacity: 0.86;
-}
-
-.send:active {
-  transform: scale(0.92);
 }
 
 .fine {

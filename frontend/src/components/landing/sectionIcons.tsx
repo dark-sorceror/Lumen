@@ -9,7 +9,6 @@ const PATHS = {
   laptop: "M4.5 3.5h7a1 1 0 0 1 1 1V9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1zM2 12.5h12",
   key: "M8 10.6a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0zM7.3 8.7 13 3M11 5l1.5 1.5M9.4 6.6l1 1",
   check: "m3.5 8.5 3 3 6-7",
-  up: "M8 13V3.5M4 7.2 8 3.2l4 4",
 } as const;
 
 export type SectionIconName = keyof typeof PATHS;
@@ -17,15 +16,6 @@ export type SectionIconName = keyof typeof PATHS;
 export function SIcon({ name }: { name: SectionIconName }) {
   return (
     <svg className={`${kit.ic} ${kit.icSm}`} viewBox="0 0 16 16" aria-hidden="true">
-      <path d={PATHS[name]} />
-    </svg>
-  );
-}
-
-/** The up arrow at the normal size, for the send button. */
-export function SIconLg({ name }: { name: SectionIconName }) {
-  return (
-    <svg className={kit.ic} viewBox="0 0 16 16" aria-hidden="true">
       <path d={PATHS[name]} />
     </svg>
   );

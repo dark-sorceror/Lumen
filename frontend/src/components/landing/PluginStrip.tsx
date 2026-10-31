@@ -1,10 +1,10 @@
 import kit from "@/app/(landing)/page.module.css";
 import { PLUGIN_INSTALL } from "@/lib/landing";
-import CopyButton from "./CopyButton";
 import { ClaudeMark } from "./Icons";
 import styles from "./Sections.module.css";
 
-/** The plugin strip: the two install lines, and what the plugin shows. */
+/** The plugin strip: the two install lines (coming soon), and what the
+ * plugin shows. */
 export default function PluginStrip() {
   return (
     <section className={kit.sec} id="plugin" aria-labelledby="plugin-title">
@@ -26,7 +26,7 @@ export default function PluginStrip() {
                 <div className={kit.cmd} key={line}>
                   <span className={kit.cmdP}>$</span>
                   <code>{line}</code>
-                  <CopyButton text={line} what="the install command" className={`${kit.btn} ${kit.btnSm}`} />
+                  <span className={`${kit.btn} ${kit.btnSm} ${kit.soon}`}>Coming soon</span>
                 </div>
               ))}
             </div>

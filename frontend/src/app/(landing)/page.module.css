@@ -215,6 +215,14 @@
   font-size: var(--fs-meta);
 }
 
+/* A way into the app or the plugin before it's out: the button's shape and
+   place, saying "Coming soon", with nothing to press. */
+.soon {
+  cursor: default;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -592,6 +600,11 @@ span.btn:hover {
   text-decoration: none;
 }
 
+.footSoon {
+  color: var(--ink-3);
+  font-size: var(--fs-ui);
+}
+
 .footCol a:hover {
   color: var(--ink);
 }
@@ -698,60 +711,4 @@ span.btn:hover {
   color: var(--paper);
   font-size: var(--fs-ui);
   box-shadow: var(--e2);
-}
-
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  background: var(--scrim);
-}
-
-.sheet {
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  position: fixed;
-  z-index: 81;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(520px, calc(100vw - 32px));
-  padding: 22px;
-  border-radius: var(--r-xl);
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: var(--e2);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.sheet h3 {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.sheetLede {
-  color: var(--ink-2);
-}
-
-.sheet ol {
-  margin: 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  color: var(--ink-2);
-  font-size: var(--fs-ui);
-}
-
-.sheet .install {
-  margin-top: 4px;
-}
-
-.acts {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
