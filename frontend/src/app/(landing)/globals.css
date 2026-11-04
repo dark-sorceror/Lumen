@@ -1,0 +1,148 @@
+/* illumen's palette, as much of it as the landing reads: paper and ink;
+   peach only for what is live or new this turn; faded ink for what the
+   model no longer sees; crimson only for what a compaction dropped. The
+   context hues (--c-*) colour the drawings' breakdowns. */
+:root {
+  --paper: #fbf8f4;
+  --paper-2: #f4efe8;
+  --surface: #ffffff;
+  --fill: #f1ece5;
+  --fill-2: #e7e1d8;
+  --ink: #1f2433;
+  --ink-2: #4c5266;
+  /* The lightest text allowed: 5.1:1 on paper, 4.7:1 on paper-2. */
+  --ink-3: #6a7085;
+  --line: rgba(31, 36, 51, 0.09);
+  --line-2: rgba(31, 36, 51, 0.17);
+  /* Live or new this turn, nothing else. Text uses --live-ink. */
+  --live: #ff8f66;
+  --live-ink: #b34a1d;
+  --live-wash: rgba(255, 143, 102, 0.16);
+  /* What a compaction dropped. */
+  --gone: #d0314a;
+  --gone-ink: #b42339;
+  --gone-wash: rgba(208, 49, 74, 0.08);
+  --ok: #1f8a4c;
+  /* Faded ink: what the model no longer sees; still 3:1 or better. */
+  --faded: rgba(31, 36, 51, 0.56);
+  --scrim: rgba(20, 24, 36, 0.28);
+  --e1: 0 1px 2px rgba(31, 36, 51, 0.04), 0 4px 14px rgba(31, 36, 51, 0.05);
+  --e2: 0 2px 6px rgba(31, 36, 51, 0.06), 0 18px 44px rgba(31, 36, 51, 0.13);
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
+  --font-display: var(--font-sora), var(--font-ui);
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* Three sizes: meta, UI, messages. The headings have their own
+     (page.module.css). */
+  --fs-meta: 12px;
+  --fs-ui: 13px;
+  --fs-body: 15px;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-full: 999px;
+  --fast: 120ms;
+  --slow: 240ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* The page's ground and text, and the lit part of the mark. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --mark-lit: var(--live);
+
+  /* The context hues. */
+  --c-instr: #6366f1;
+  --c-tools: #db2777;
+  --c-summary: #0ea5e9;
+  --c-work: #ca8a04;
+  --c-added: #9b9b97;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #121110;
+    --paper-2: #0d0c0b;
+    --surface: #1b1a18;
+    --fill: #252321;
+    --fill-2: #302e2b;
+    --ink: #f5f0ea;
+    --ink-2: #cbc5bd;
+    --ink-3: #a09a92;
+    --line: rgba(245, 240, 234, 0.09);
+    --line-2: rgba(245, 240, 234, 0.18);
+    --live: #ffa07d;
+    --live-ink: #ffb595;
+    --live-wash: rgba(255, 160, 125, 0.14);
+    --gone: #ff5f74;
+    --gone-ink: #ff8a99;
+    --gone-wash: rgba(255, 95, 116, 0.12);
+    --ok: #4ade80;
+    --faded: rgba(245, 240, 234, 0.52);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --e1: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 2px 10px rgba(0, 0, 0, 0.35);
+    --e2: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.45), 0 22px 50px rgba(0, 0, 0, 0.55);
+    --c-instr: #4f52d6;
+    --c-tools: #db2777;
+    --c-summary: #0a94d0;
+    --c-work: #b07d0a;
+    --c-added: #75756f;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  /* The landing's .page (page.module.css) is its own scroller: the story
+     pins inside it and the in-page links glide it. The document itself
+     never scrolls. */
+  overflow: hidden;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* One consistent keyboard focus ring for every control that doesn't define
+   its own. Mouse clicks never show it. */
+:where(button, a, summary, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
